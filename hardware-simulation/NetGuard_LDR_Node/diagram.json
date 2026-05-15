@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "author": "Rohith",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 0, "left": 0, "attrs": {} },
+    { "type": "wokwi-photoresistor-sensor", "id": "ldr1", "top": -100, "left": -150, "attrs": {} }
+  ],
+  "connections": [
+    [ "esp:3V3", "ldr1:VCC", "red", [] ],
+    [ "esp:GND.1", "ldr1:GND", "black", [] ],
+    [ "esp:34", "ldr1:AO", "green", [] ]
+  ],
+  "dependencies": {}
+}

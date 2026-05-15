@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# Machine Learning
+*.pkl
+*.model
+
+# PlatformIO / Wokwi
+.pio/
+.vscode/
+*.hex
+*.elf
+*.bin
+
+# Datasets (Optional: Un-comment to prevent pushing large datasets)
+# mqtt_collector/dataset/*.csv
+# mqtt_collector/dataset/*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
