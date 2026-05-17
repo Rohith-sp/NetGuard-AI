@@ -8,21 +8,36 @@ env/
 venv/
 .venv/
 
-# Machine Learning
+# Machine Learning — model is large, keep local
 *.pkl
 *.model
 
-# PlatformIO / Wokwi
+# PlatformIO build artifacts
 .pio/
-.vscode/
 *.hex
 *.elf
 *.bin
+*.map
 
-# Datasets (Optional: Un-comment to prevent pushing large datasets)
-# mqtt_collector/dataset/*.csv
-# mqtt_collector/dataset/*.log
+# VS Code
+.vscode/
 
-# OS generated files
+# Next.js
+dashboard/frontend/.next/
+dashboard/frontend/node_modules/
+
+# Environment / secrets
+.env
+.env.local
+*.env
+
+# OS
 .DS_Store
 Thumbs.db
+
+# Datasets (large CSV files — keep local)
+mqtt_collector/dataset/*.csv
+mqtt_collector/dataset/*.log
+
+# Plots (regeneratable)
+mqtt_collector/plots/

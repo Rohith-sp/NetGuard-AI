@@ -1,0 +1,214 @@
+=======================================================
+  NetGuard AI — Remaining Software Work
+  RV College of Engineering · CS344AI · 2025-26
+=======================================================
+
+──────────────────────────────────────────────────────
+ STATUS SUMMARY (as of May 2026)
+──────────────────────────────────────────────────────
+✅ Live MQTT telemetry (DHT22 temp/humidity, LDR light)
+✅ FastAPI backend — MQTT → WebSocket → Next.js bridge
+✅ Real ML inference (Random Forest, netguard_model.pkl)
+   - Runs every 5 seconds on 10-second packet window
+   - Features: pkt_rate, iat, dup_ratio, seq_gap, etc.
+✅ Anomaly score graph (temporal, scrolling)
+✅ Packet rate chart (all 3 nodes, multi-line)
+✅ Node status cards (trust bars, online/offline)
+✅ Live packet feed (real-time, color-coded)
+✅ Alert log (severity: CRITICAL / HIGH / MEDIUM)
+✅ Attacker Control tab (trigger/reset via MQTT cmd)
+✅ Attacker disguised as PIR Motion sensor (public view)
+✅ IST time sync from backend to ESP nodes
+✅ Python node simulator (replaces Wokwi — see note)
+
+──────────────────────────────────────────────────────
+ NOTE: WOKWI SIMULATION ISSUE
+──────────────────────────────────────────────────────
+Wokwi's simulated "Wokwi-GUEST" WiFi network does NOT
+support outbound TCP connections on port 1883 to external
+MQTT brokers (like broker.hivemq.com). All 3 ESP32 nodes
+were compiled and flashed successfully via PlatformIO, but
+cannot publish data in the virtual environment.
+
+WORKAROUND: dashboard/backend/node_simulator.py
+  - Replaces all 3 Wokwi simulations with Python threads
+  - Publishes realistic Bangalore sensor data to HiveMQ
+  - Attacker stays NORMAL until dashboard "Trigger" is pressed
+  - Run: python node_simulator.py (from dashboard/backend/)
+
+WITH REAL HARDWARE: Just flash the .bin files, update WiFi
+credentials in each main.cpp, and the full pipeline works
+without any other code changes.
+
+──────────────────────────────────────────────────────
+ REMAINING FEATURES TO BUILD
+──────────────────────────────────────────────────────
+
+─── 1. SHAP Force Plot (UI) ────────────────────────
+  Priority : HIGH — most impressive for demo
+  Effort   : ~45 minutes
+  Status   : SHAP values already computed in backend
+             and sent via WebSocket. Just need the UI.
+
+  What to build:
+  - Horizontal bar chart in the Network Analyzer card
+  - Each bar = one feature (pkt_rate, iat_mean, etc.)
+  - Bar length = SHAP value magnitude
+  - Color: red = pushed toward attack, green = toward normal
+  - Shows top 5 most influential features per inference
+
+  Files to modify:
+  - app/components/Panels.tsx  (add ShapBar component)
+  - app/globals.css            (add .shap-bar styles)
+
+─── 2. Device Heatmap ──────────────────────────────
+  Priority : MEDIUM
+  Effort   : ~30 minutes
+  Status   : Not started
+
+  What to build:
+  - 3-cell colored grid (one per ESP node)
+  - Color maps threat level: green → amber → red
+  - Each cell shows: node name, dominant metric, live value
+  - Flashes on high anomaly
+
+  Files to modify:
+  - app/components/Panels.tsx  (add HeatmapPanel)
+  - app/page.tsx               (add to overview grid)
+
+─── 3. Network Topology Tab ────────────────────────
+  Priority : HIGH — visually stunning for demo
+  Effort   : ~1.5 hours
+  Status   : Not started
+
+  What to build:
+  - New tab "Topology" in the header nav
+  - Animated SVG canvas showing:
+      [Gateway/Router] ──── [ESP32_1 DHT22]
+           │           ──── [ESP32_2 LDR  ]
+           │           ──── [ESP32_3 PIR  ] ← pulses red on attack
+           │
+       [NetGuard Backend]
+           │
+       [Dashboard]
+  - Lines animate (packets flowing)
+  - Nodes pulse color based on trust score
+  - Click a node → shows live stats panel
+
+  Files to create:
+  - app/components/TopologyTab.tsx
+
+─── 4. Blynk Mobile App Integration ───────────────
+  Priority : HIGH — impresses evaluators, runs on phone
+  Effort   : ~1 hour
+  Status   : Not started
+  Requires : Free Blynk account + Auth Token
+
+  What to build:
+  A. Backend sends real-time data to Blynk cloud:
+     - V0 = Temperature (°C)
+     - V1 = Humidity (%)
+     - V2 = Light (LUX)
+     - V3 = Anomaly score (%)
+     - V4 = Attack mode string
+     - V5 = ESP32_3 trust score
+
+  B. Push notification on CRITICAL attack:
+     - "🚨 DOS_FLOOD detected — 99% confidence"
+     - Triggered when model.isAttack = True
+
+  C. Blynk button → Reset Attacker to Normal:
+     - Blynk button (V6) POSTs to /attacker/release
+
+  Implementation:
+  - Add BLYNK_TOKEN to dashboard/backend/.env
+  - Add ~20 lines to main.py inference_loop():
+      import httpx
+      BASE = f"https://blynk.cloud/external/api"
+      httpx.get(f"{BASE}/update?token={TOKEN}&v0={temp}&v3={anomaly}")
+      if isAttack:
+          httpx.get(f"{BASE}/notify?token={TOKEN}&body=Attack+detected")
+  - Add webhook endpoint in backend for Blynk → /attacker/release
+
+  Blynk App setup (5 min):
+  - Create new template on blynk.cloud
+  - Add: Gauge (V0 temp), Gauge (V1 hum), LED (V3), Label (V4)
+  - Enable push notifications in app settings
+
+─── 5. RAG Security Chatbot ────────────────────────
+  Priority : MEDIUM
+  Effort   : ~2 hours
+  Status   : Hardcoded responses currently shown
+  Requires : LLM API key (Gemini / OpenAI)
+
+  What to build:
+  - LangChain RAG pipeline reading:
+      • mqtt_collector/DATASETS.md   (knowledge base)
+      • Last 50 MQTT log entries      (live context)
+      • Latest inference result        (model state)
+  - User asks natural language questions:
+      "Why is ESP32_3 flagged as suspicious?"
+      "What is the current anomaly score?"
+      "Explain what a replay attack is"
+  - Model answers grounded in actual data
+
+  Files to create/modify:
+  - dashboard/backend/rag.py  (LangChain chain)
+  - dashboard/backend/main.py (add /chat POST endpoint)
+  - app/page.tsx              (wire chat to real endpoint)
+
+─── 6. Live PDF Incident Report ────────────────────
+  Priority : MEDIUM (great for demo)
+  Effort   : ~1 hour
+  Status   : Not started
+
+  What to build:
+  - "Export Report" button on dashboard
+  - Generates PDF with:
+      • Timestamp + IST date
+      • Attack timeline (all alerts)
+      • SHAP feature importance chart
+      • Node trust scores
+      • Raw feature values at time of detection
+  - Uses browser print API or jsPDF library
+
+─── 7. Browser Push Notifications ──────────────────
+  Priority : LOW-MEDIUM
+  Effort   : ~20 minutes
+  Status   : Not started
+
+  - Request notification permission on page load
+  - Show OS-level popup: "🚨 DOS FLOOD on ESP32_3 (99%)"
+  - Works even when browser tab is in background
+
+──────────────────────────────────────────────────────
+ HOW TO RUN (CURRENT STATE)
+──────────────────────────────────────────────────────
+Terminal 1 — Backend:
+  cd dashboard/backend
+  python -m uvicorn main:app --port 8000
+
+Terminal 2 — Node Simulator (replaces Wokwi):
+  cd dashboard/backend
+  python node_simulator.py
+
+Terminal 3 — Frontend:
+  cd dashboard/frontend
+  npm run dev
+
+Open: http://localhost:3000
+
+──────────────────────────────────────────────────────
+ HARDWARE TRANSITION (when real ESP32s are available)
+──────────────────────────────────────────────────────
+1. Stop node_simulator.py
+2. In each firmware main.cpp, change:
+     const char* ssid     = "YourWiFiName";
+     const char* password = "YourWiFiPass";
+3. Flash with:
+     cd hardware-simulation/NetGuard_DHT_Node
+     pio run --target upload
+   (repeat for LDR and Attacker nodes)
+4. Everything else works unchanged.
+
+=======================================================
