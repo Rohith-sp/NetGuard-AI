@@ -266,14 +266,18 @@ body {
 .chat-messages { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; scrollbar-width: thin; }
 .chat-msg { display: flex; flex-direction: column; gap: 3px; }
 .chat-from { font-size: 10.5px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.5px; }
-.chat-bubble { font-size: 12.5px; line-height: 1.55; padding: 9px 12px; border-radius: 6px; max-width: 90%; }
+.chat-bubble { font-size: 12.5px; line-height: 1.55; padding: 9px 12px; border-radius: 6px; max-width: 90%; word-break: break-word; }
 .chat-bubble.user { background: var(--green-bg); color: var(--text); border: 1px solid var(--green-mid); align-self: flex-end; }
 .chat-bubble.ai   { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+.chat-bubble.ai .chat-h4 { font-size: 13px; font-weight: 600; color: var(--text); margin: 8px 0 4px; padding-bottom: 2px; border-bottom: 0.5px solid var(--border); display: block; }
+.chat-bubble.ai .chat-li { font-size: 12px; color: var(--text-2); margin-left: 14px; list-style-type: disc; margin-bottom: 3px; display: list-item; }
+.chat-bubble.ai .mono-code { font-family: var(--mono); font-size: 11px; padding: 1px 4px; background: var(--surface); border: 0.5px solid var(--border); border-radius: 3px; color: #dc2626; }
 .chat-input-row { display: flex; border-top: 1px solid var(--border); }
 .chat-input { flex: 1; padding: 10px 14px; font-family: var(--sans); font-size: 13px; color: var(--text); background: transparent; border: none; outline: none; }
 .chat-input::placeholder { color: var(--text-3); }
 .chat-send-btn { padding: 10px 16px; font-size: 12px; font-weight: 600; color: var(--green); background: transparent; border: none; border-left: 1px solid var(--border); cursor: pointer; transition: background 0.15s; }
 .chat-send-btn:hover { background: var(--green-bg); }
+
 
 /* ── SVG GRAPHS ─────────────────────────── */
 .anomaly-graph-wrap { position: relative; height: 160px; padding: 4px 0 0; }
@@ -302,3 +306,209 @@ body {
 
 @media (max-width: 1100px) { .grid-main { grid-template-columns: 1fr; } .kpi-row { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 700px) { .node-row { grid-template-columns: 1fr; } .kpi-row { grid-template-columns: 1fr; } .main { padding: 16px 14px 48px; } }
+
+/* ── SHAP FORCE PLOT ────────────────────── */
+.shap-section { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
+.shap-title { font-size: 11px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px; }
+.shap-row { display: grid; grid-template-columns: 100px 1fr 44px 52px; align-items: center; gap: 8px; }
+.shap-feat-name { font-family: var(--mono); font-size: 10px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shap-bar-track { height: 10px; background: var(--surface2); border-radius: 3px; overflow: hidden; border: 1px solid var(--border); }
+.shap-bar-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+.shap-pos { background: linear-gradient(90deg, #fca5a5, #dc2626); }
+.shap-neg { background: linear-gradient(90deg, #6ee7b7, #059669); }
+.shap-raw { font-family: var(--mono); font-size: 10px; color: var(--text-3); text-align: right; }
+.shap-val { font-family: var(--mono); font-size: 10px; font-weight: 600; text-align: right; }
+.shap-val-pos { color: var(--red); }
+.shap-val-neg { color: var(--green); }
+.shap-legend { display: flex; align-items: center; gap: 4px; margin-top: 6px; font-size: 10.5px; color: var(--text-3); }
+.shap-leg-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
+.shap-pos-dot { background: var(--red); }
+.shap-neg-dot { background: var(--green); }
+
+/* ── DEVICE HEATMAP ─────────────────────── */
+.heatmap-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; }
+.heatmap-cell {
+  padding: 18px 16px; display: flex; flex-direction: column; align-items: center; gap: 5px;
+  text-align: center; border-right: 1px solid var(--border); transition: background 0.4s;
+  position: relative;
+}
+.heatmap-cell:last-child { border-right: none; }
+.heatmap-icon { font-size: 28px; line-height: 1; }
+.heatmap-id { font-family: var(--mono); font-size: 11.5px; font-weight: 600; color: var(--text); }
+.heatmap-label { font-size: 11px; color: var(--text-3); }
+.heatmap-metric { font-family: var(--mono); font-size: 16px; font-weight: 600; color: var(--text); line-height: 1.2; margin-top: 4px; }
+.heatmap-sub { font-size: 10.5px; color: var(--text-3); }
+.heatmap-trust-bar { width: 80%; height: 4px; background: var(--surface2); border-radius: 2px; overflow: hidden; margin-top: 6px; }
+.heatmap-trust-fill { height: 100%; border-radius: 2px; transition: width 0.6s ease, background 0.4s; }
+.heatmap-trust-pct { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); }
+
+.heatmap-ok      { background: var(--surface); }
+.heatmap-warn    { background: var(--amber-bg); }
+.heatmap-threat  { background: var(--red-bg); animation: heatFlash 1s ease-in-out infinite; }
+.heatmap-offline { background: var(--surface2); opacity: 0.6; }
+.heatmap-threat .heatmap-metric { color: var(--red); }
+.heatmap-threat .heatmap-id     { color: var(--red); }
+.heatmap-warn   .heatmap-metric { color: var(--amber); }
+
+@keyframes heatFlash {
+  0%, 100% { background: var(--red-bg); }
+  50%       { background: #fee2e2; }
+}
+
+/* ── NETWORK TOPOLOGY ───────────────────────────────── */
+
+/* Packet-dot CSS animations (offset-path based) */
+@keyframes topo-pkt-move {
+  0%   { offset-distance: 0%;   opacity: 0; }
+  5%   { opacity: 1; }
+  95%  { opacity: 1; }
+  100% { offset-distance: 100%; opacity: 0; }
+}
+@keyframes topo-atk-pkt-move {
+  0%   { offset-distance: 0%;   opacity: 0; }
+  5%   { opacity: 1; }
+  95%  { opacity: 1; }
+  100% { offset-distance: 100%; opacity: 0; }
+}
+
+/* Outer wrapper */
+.topo-wrap { display: flex; flex-direction: column; gap: 0; padding: 0; }
+
+/* Header */
+.topo-header {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 12px;
+}
+.topo-title { font-size: 13.5px; font-weight: 500; color: var(--text); flex: 1; }
+
+.topo-badge { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 20px; }
+.topo-badge.live   { background: var(--green-bg); color: var(--green); border: 0.5px solid var(--green-mid); }
+.topo-badge.offline{ background: var(--surface2); color: var(--text-3); border: 0.5px solid var(--border2); }
+
+.topo-status-hint        { font-size: 11px; color: var(--text-3); }
+.topo-status-hint.danger { color: var(--red); }
+
+/* Fix 1: flex row so SVG+sidebar live inside ONE parent card — sidebar fixed 220px */
+.topo-body {
+  display: flex;
+  flex-direction: row;
+  gap: 0;
+  align-items: stretch;
+}
+
+/* SVG container — fills remaining width, sidebar handles its own 220px */
+.topo-svg-wrap { position: relative; flex: 1; min-width: 0; }
+.topo-svg {
+  display: block; width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius) 0 0 var(--radius);
+  background: var(--surface2);
+}
+.topo-edge { transition: stroke 0.4s, stroke-width 0.3s; }
+.topo-node-card { transition: filter 0.4s; }
+.topo-node-card.attack-node {
+  filter: drop-shadow(0 0 7px color-mix(in srgb, var(--red) 55%, transparent));
+}
+.topo-pkt-layer { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+
+.topo-pkt {
+  position: absolute; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--blue); offset-rotate: 0deg;
+  animation: topo-pkt-move var(--dur, 2.5s) var(--delay, 0s) linear infinite;
+  pointer-events: none;
+  box-shadow: 0 0 4px color-mix(in srgb, var(--blue) 60%, transparent);
+}
+.topo-pkt.atk {
+  background: var(--red);
+  animation: topo-atk-pkt-move 0.45s var(--delay, 0s) linear infinite;
+  width: 7px; height: 7px;
+  box-shadow: 0 0 5px color-mix(in srgb, var(--red) 70%, transparent);
+}
+
+/* Fix 1: side panel — 220px fixed, left border is the divider between SVG and panel */
+.topo-side-panel {
+  display: flex; flex-direction: column; gap: 0;
+  width: 220px; flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  overflow: hidden;
+}
+.topo-panel-divider { height: 1px; background: var(--border); }
+
+/* Fix 8: sentence case — remove text-transform uppercase */
+.topo-sim-label { font-size: 10px; font-weight: 600; color: var(--text-3); letter-spacing: 0.3px; }
+/* Fix 8: gap 4px, section padding 8px top/bottom */
+.topo-sim-section { padding: 8px 14px; display: flex; flex-direction: column; gap: 8px; }
+.topo-sim-btns  { display: flex; flex-direction: column; gap: 4px; }
+.topo-sim-btn {
+  font-size: 11.5px; font-weight: 500;
+  /* Fix 8: height 32px */
+  height: 32px; padding: 0 10px;
+  border-radius: var(--radius); border: 0.5px solid var(--border2);
+  cursor: pointer; background: var(--surface2); color: var(--text-2);
+  text-align: left; transition: all 0.15s; font-family: var(--sans);
+}
+.topo-sim-btn:hover:not(:disabled) { background: var(--surface); border-color: var(--border2); color: var(--text); }
+.topo-sim-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.topo-sim-btn.normal.active  { background: var(--green-bg); color: var(--green); border-color: var(--green); }
+.topo-sim-btn.dos.active     { background: var(--red-bg);   color: var(--red);   border-color: var(--red); }
+.topo-sim-btn.replay.active  { background: var(--amber-bg); color: var(--amber); border-color: var(--amber); }
+.topo-sim-btn.slow.active    { background: var(--blue-bg);  color: var(--blue);  border-color: var(--blue); }
+
+.topo-sim-desc    { font-size: 10px; color: var(--text-3); line-height: 1.45; }
+/* Fix 8: 11px, tertiary color, not italic */
+.topo-sim-note    { font-size: 11px; color: var(--text-3); font-style: normal; }
+.topo-sim-offline { font-size: 10px; color: var(--amber); margin-top: 2px; }
+.topo-sim-chip {
+  font-size: 9px; font-weight: 600; letter-spacing: 0.5px;
+  padding: 1px 6px; border-radius: 20px;
+  background: var(--blue-bg); color: var(--blue);
+  border: 0.5px solid #bfdbfe; text-transform: uppercase;
+}
+
+/* Prediction section */
+.topo-pred-section { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+
+.topo-pred-badge {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 7px 10px; border-radius: var(--radius);
+  background: var(--surface2); border: 1px solid var(--border);
+  transition: all 0.3s;
+}
+.topo-pred-badge.threat { background: var(--red-bg); border-color: var(--red-mid); }
+.topo-pred-label { font-family: var(--mono); font-size: 11px; font-weight: 500; color: var(--text); }
+.topo-pred-badge.threat .topo-pred-label { color: var(--red); }
+.topo-pred-conf  { font-family: var(--mono); font-size: 12px; font-weight: 600; }
+
+.topo-conf-bar-wrap { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.topo-conf-bar      { height: 100%; border-radius: 2px; transition: width 0.6s ease, background 0.4s; }
+
+.topo-pred-stats { display: flex; flex-direction: column; gap: 4px; }
+.topo-pred-row   { display: flex; justify-content: space-between; align-items: center; }
+.topo-pred-key   { font-size: 10.5px; color: var(--text-3); }
+.topo-pred-val   { font-family: var(--mono); font-size: 10.5px; font-weight: 500; color: var(--text); }
+
+.topo-shap-hint  { display: flex; flex-direction: column; gap: 2px; padding-top: 6px; border-top: 1px solid var(--border); }
+.topo-shap-key   { font-size: 9.5px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.5px; }
+.topo-shap-val   { font-family: var(--mono); font-size: 10px; color: var(--text-2); line-height: 1.4; }
+
+/* Alert banner */
+.topo-alert-banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 14px; margin-top: 10px;
+  border-radius: var(--radius);
+  background: var(--red-bg); border: 0.5px solid var(--red-mid);
+  color: var(--red); font-size: 12.5px; font-weight: 500;
+  animation: alertblink 1.4s step-end infinite;
+}
+
+@media (max-width: 800px) {
+  .topo-body { flex-direction: column; }
+  .topo-side-panel { width: 100%; border-left: none; border-top: 1px solid var(--border); }
+  .topo-svg { border-radius: var(--radius) var(--radius) 0 0; }
+  .topo-sim-btns { flex-direction: row; flex-wrap: wrap; }
+  .topo-sim-btn  { flex: 1 1 auto; text-align: center; }
+}
+
+

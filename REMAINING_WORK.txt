@@ -1,10 +1,10 @@
 =======================================================
   NetGuard AI — Remaining Software Work
-  RV College of Engineering · CS344AI · 2025-26
+  IoT Security Operations Center (SOC)
 =======================================================
 
 ──────────────────────────────────────────────────────
- STATUS SUMMARY (as of May 2026)
+ STATUS SUMMARY
 ──────────────────────────────────────────────────────
 ✅ Live MQTT telemetry (DHT22 temp/humidity, LDR light)
 ✅ FastAPI backend — MQTT → WebSocket → Next.js bridge
@@ -16,10 +16,14 @@
 ✅ Node status cards (trust bars, online/offline)
 ✅ Live packet feed (real-time, color-coded)
 ✅ Alert log (severity: CRITICAL / HIGH / MEDIUM)
-✅ Attacker Control tab (trigger/reset via MQTT cmd)
+✅ Attacker Control panel (trigger/reset via MQTT cmd)
 ✅ Attacker disguised as PIR Motion sensor (public view)
 ✅ IST time sync from backend to ESP nodes
 ✅ Python node simulator (replaces Wokwi — see note)
+✅ SHAP Force Plot UI (explainable AI driver weights)
+✅ Device Heatmap (color-coded live node grids)
+✅ Interactive Network Topology Tab (animated SVG canvas)
+✅ RAG AI Security Analyst Chatbot (dual-key Groq + Gemini LLMs)
 
 ──────────────────────────────────────────────────────
  NOTE: WOKWI SIMULATION ISSUE
@@ -32,7 +36,7 @@ cannot publish data in the virtual environment.
 
 WORKAROUND: dashboard/backend/node_simulator.py
   - Replaces all 3 Wokwi simulations with Python threads
-  - Publishes realistic Bangalore sensor data to HiveMQ
+  - Publishes realistic sensor data to HiveMQ
   - Attacker stays NORMAL until dashboard "Trigger" is pressed
   - Run: python node_simulator.py (from dashboard/backend/)
 
@@ -41,67 +45,44 @@ credentials in each main.cpp, and the full pipeline works
 without any other code changes.
 
 ──────────────────────────────────────────────────────
- REMAINING FEATURES TO BUILD
+ COMPLETED FEATURES
 ──────────────────────────────────────────────────────
 
 ─── 1. SHAP Force Plot (UI) ────────────────────────
-  Priority : HIGH — most impressive for demo
-  Effort   : ~45 minutes
-  Status   : SHAP values already computed in backend
-             and sent via WebSocket. Just need the UI.
-
-  What to build:
-  - Horizontal bar chart in the Network Analyzer card
-  - Each bar = one feature (pkt_rate, iat_mean, etc.)
-  - Bar length = SHAP value magnitude
-  - Color: red = pushed toward attack, green = toward normal
-  - Shows top 5 most influential features per inference
-
-  Files to modify:
-  - app/components/Panels.tsx  (add ShapBar component)
-  - app/globals.css            (add .shap-bar styles)
+  Status   : 100% COMPLETE & VERIFIED ✅
+  Details  : Built horizontal bar chart under the Network
+             Analyzer card. Shows live weights (red = pushes
+             anomaly up, green = pushes anomaly down) dynamically
+             computed per ML inference cycle.
 
 ─── 2. Device Heatmap ──────────────────────────────
-  Priority : MEDIUM
-  Effort   : ~30 minutes
-  Status   : Not started
-
-  What to build:
-  - 3-cell colored grid (one per ESP node)
-  - Color maps threat level: green → amber → red
-  - Each cell shows: node name, dominant metric, live value
-  - Flashes on high anomaly
-
-  Files to modify:
-  - app/components/Panels.tsx  (add HeatmapPanel)
-  - app/page.tsx               (add to overview grid)
+  Status   : 100% COMPLETE & VERIFIED ✅
+  Details  : Constructed a 3-cell responsive grid indicating
+             live threat level per ESP node, displaying live
+             temp, light, and motion states with pulsing borders.
 
 ─── 3. Network Topology Tab ────────────────────────
-  Priority : HIGH — visually stunning for demo
-  Effort   : ~1.5 hours
-  Status   : Not started
+  Status   : 100% COMPLETE & VERIFIED ✅
+  Details  : Created a stunning animated SVG Canvas showing
+             the Gateway/Router, Node status, live animated
+             packet flows, and full Attacker status controls in
+             a consolidated panel.
 
-  What to build:
-  - New tab "Topology" in the header nav
-  - Animated SVG canvas showing:
-      [Gateway/Router] ──── [ESP32_1 DHT22]
-           │           ──── [ESP32_2 LDR  ]
-           │           ──── [ESP32_3 PIR  ] ← pulses red on attack
-           │
-       [NetGuard Backend]
-           │
-       [Dashboard]
-  - Lines animate (packets flowing)
-  - Nodes pulse color based on trust score
-  - Click a node → shows live stats panel
+─── 4. RAG Security Chatbot ────────────────────────
+  Status   : 100% COMPLETE & VERIFIED ✅
+  Details  : Integrated a live RAG pipeline querying Llama 3.3
+             via a dual-key Groq model rotation + Gemini fallback
+             and local Expert rules system. Grounded in DATASETS.md,
+             active ML values, and 50 last logs. Added custom suggestion
+             chips, a status sidebar, and full markdown rendering.
 
-  Files to create:
-  - app/components/TopologyTab.tsx
+──────────────────────────────────────────────────────
+ REMAINING ENHANCEMENTS
+──────────────────────────────────────────────────────
 
-─── 4. Blynk Mobile App Integration ───────────────
-  Priority : HIGH — impresses evaluators, runs on phone
-  Effort   : ~1 hour
-  Status   : Not started
+─── 1. Blynk Mobile App Integration ───────────────
+  Priority : HIGH — runs on mobile device
+  Status   : Backlog
   Requires : Free Blynk account + Auth Token
 
   What to build:
@@ -120,47 +101,9 @@ without any other code changes.
   C. Blynk button → Reset Attacker to Normal:
      - Blynk button (V6) POSTs to /attacker/release
 
-  Implementation:
-  - Add BLYNK_TOKEN to dashboard/backend/.env
-  - Add ~20 lines to main.py inference_loop():
-      import httpx
-      BASE = f"https://blynk.cloud/external/api"
-      httpx.get(f"{BASE}/update?token={TOKEN}&v0={temp}&v3={anomaly}")
-      if isAttack:
-          httpx.get(f"{BASE}/notify?token={TOKEN}&body=Attack+detected")
-  - Add webhook endpoint in backend for Blynk → /attacker/release
-
-  Blynk App setup (5 min):
-  - Create new template on blynk.cloud
-  - Add: Gauge (V0 temp), Gauge (V1 hum), LED (V3), Label (V4)
-  - Enable push notifications in app settings
-
-─── 5. RAG Security Chatbot ────────────────────────
+─── 2. Live PDF Incident Report ────────────────────
   Priority : MEDIUM
-  Effort   : ~2 hours
-  Status   : Hardcoded responses currently shown
-  Requires : LLM API key (Gemini / OpenAI)
-
-  What to build:
-  - LangChain RAG pipeline reading:
-      • mqtt_collector/DATASETS.md   (knowledge base)
-      • Last 50 MQTT log entries      (live context)
-      • Latest inference result        (model state)
-  - User asks natural language questions:
-      "Why is ESP32_3 flagged as suspicious?"
-      "What is the current anomaly score?"
-      "Explain what a replay attack is"
-  - Model answers grounded in actual data
-
-  Files to create/modify:
-  - dashboard/backend/rag.py  (LangChain chain)
-  - dashboard/backend/main.py (add /chat POST endpoint)
-  - app/page.tsx              (wire chat to real endpoint)
-
-─── 6. Live PDF Incident Report ────────────────────
-  Priority : MEDIUM (great for demo)
-  Effort   : ~1 hour
-  Status   : Not started
+  Status   : Backlog
 
   What to build:
   - "Export Report" button on dashboard
@@ -170,19 +113,17 @@ without any other code changes.
       • SHAP feature importance chart
       • Node trust scores
       • Raw feature values at time of detection
-  - Uses browser print API or jsPDF library
 
-─── 7. Browser Push Notifications ──────────────────
+─── 3. Browser Push Notifications ──────────────────
   Priority : LOW-MEDIUM
-  Effort   : ~20 minutes
-  Status   : Not started
+  Status   : Backlog
 
   - Request notification permission on page load
   - Show OS-level popup: "🚨 DOS FLOOD on ESP32_3 (99%)"
   - Works even when browser tab is in background
 
 ──────────────────────────────────────────────────────
- HOW TO RUN (CURRENT STATE)
+ HOW TO RUN
 ──────────────────────────────────────────────────────
 Terminal 1 — Backend:
   cd dashboard/backend
@@ -199,7 +140,7 @@ Terminal 3 — Frontend:
 Open: http://localhost:3000
 
 ──────────────────────────────────────────────────────
- HARDWARE TRANSITION (when real ESP32s are available)
+ HARDWARE TRANSITION
 ──────────────────────────────────────────────────────
 1. Stop node_simulator.py
 2. In each firmware main.cpp, change:

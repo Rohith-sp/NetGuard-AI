@@ -14,6 +14,21 @@ import paho.mqtt.client as mqtt
 from pydantic import BaseModel
 import numpy as np
 
+# ── Load .env manually if exists ──────────────────────────────────────────────
+env_path = os.path.join(os.path.dirname(__file__), ".env")
+if os.path.exists(env_path):
+    try:
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, val = line.split("=", 1)
+                    os.environ[key.strip()] = val.strip()
+        print("[Env] Secure .env file loaded successfully.")
+    except Exception as e:
+        print(f"[Env] Error loading .env file manually: {e}")
+
+
 # ── Optional SHAP ─────────────────────────────────────────────────────────────
 try:
     import shap
@@ -129,7 +144,9 @@ async def inference_loop():
             pred_label = model.predict(X)[0]
             pred_proba = model.predict_proba(X)[0]
             confidence = round(float(max(pred_proba)) * 100, 1)
-            is_attack  = pred_label not in ("NORMAL", "normal")
+            # Use exact classes the model was trained on
+            normal_classes = {c for c in model.classes_ if c.upper() == "NORMAL"}
+            is_attack  = pred_label not in normal_classes
 
             # ── SHAP values ───────────────────────────────────────────────
             shap_out = []
@@ -305,10 +322,73 @@ async def set_mode(cmd: ModeCommand):
     print(f"[CMD] SET_MODE → {cmd.mode}")
     return {"status": "ok", "mode": cmd.mode}
 
+# ── Simulation endpoint (injects synthetic packets for demo/offline mode) ──────
+# Realistic inter-arrival times per attack class:
+#   NORMAL:           2000–5000 ms  → ~0.3 pkt/s  iat ~3500ms  dup 0    seq+1
+#   DOS_FLOOD:        150–350  ms   → ~4 pkt/s    iat ~250ms   dup 0    seq+1
+#   REPLAY_ATTACK:    800–1500 ms   → ~1 pkt/s    iat ~1100ms  dup 0.8  seq 0
+#   SLOW_RATE_ATTACK: 15000–30000ms → ~0.05 pkt/s iat ~22000ms dup 0    seq+1
+_SIM_CFG = {
+    "NORMAL":           {"iat_lo": 2000, "iat_hi": 5000,  "n": 12, "dup": 0.0,  "seq_inc": 1},
+    "DOS_FLOOD":        {"iat_lo":  150, "iat_hi":  350,  "n": 80, "dup": 0.0,  "seq_inc": 1},
+    "REPLAY_ATTACK":    {"iat_lo":  800, "iat_hi": 1500,  "n": 20, "dup": 0.82, "seq_inc": 0},
+    "SLOW_RATE_ATTACK": {"iat_lo": 15000,"iat_hi":30000, "n":  4, "dup": 0.0,  "seq_inc": 1},
+}
+
+import random as _random
+
+@app.post("/simulate")
+async def simulate(cmd: ModeCommand):
+    """Inject synthetic packets so the ML model predicts the correct attack class."""
+    global packet_buffer
+    mode = cmd.mode.upper()
+    cfg  = _SIM_CFG.get(mode, _SIM_CFG["NORMAL"])
+
+    now = time.time()
+    packet_buffer.clear()
+
+    ts = now - (cfg["n"] * (cfg["iat_hi"] / 1000))  # back-date start
+    seq = 1000
+    for i in range(cfg["n"]):
+        iat_ms = _random.uniform(cfg["iat_lo"], cfg["iat_hi"])
+        ts    += iat_ms / 1000.0
+        # For replay: duplicate ~dup fraction of packets with same seq
+        if mode == "REPLAY_ATTACK" and i > 0 and _random.random() < cfg["dup"]:
+            pkt_seq = seq   # frozen seq
+        else:
+            seq    += cfg["seq_inc"]
+            pkt_seq = seq
+        packet_buffer.append({"ts": ts, "seq": pkt_seq, "mode": mode})
+
+    # Also broadcast a fake attacker update so the node card goes online
+    recent   = [p for p in packet_buffer if now - p["ts"] <= 5]
+    pkt_rate = round(len(recent) / 5, 1)
+    out = json.dumps({
+        "topic": "netguard/attacker", "mode": mode,
+        "seq": seq, "pkt_rate": pkt_rate, "iat": 0, "manual": True,
+    })
+    await broadcast(out)
+    print(f"[SIM] Injected {cfg['n']} synthetic packets for mode={mode}")
+    return {"status": "ok", "mode": mode, "packets_injected": cfg['n']}
+
 @app.post("/attacker/release")
 async def release():
     mqtt_client.publish("netguard/cmd", json.dumps({"command": "RELEASE"}))
     return {"status": "ok"}
+
+# ── RAG AI Security Analyst Chatbot ──────────────────────────────────────────
+class ChatMessage(BaseModel):
+    question: str
+
+@app.post("/chat")
+async def chat_endpoint(msg: ChatMessage):
+    try:
+        from rag import query_analyst
+        reply = query_analyst(msg.question, last_messages, latest_inference)
+        return {"reply": reply}
+    except Exception as e:
+        print(f"[RAG] Endpoint error: {e}")
+        return {"reply": f"### Error processing request\n*Could not query the RAG chatbot: {e}*"}
 
 @app.get("/health")
 async def health():
@@ -317,3 +397,4 @@ async def health():
 @app.get("/debug")
 async def debug():
     return {"last_20_mqtt_messages": last_messages, "latest_inference": latest_inference}
+

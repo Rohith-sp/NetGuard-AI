@@ -126,12 +126,21 @@ export function NodeRow({ n1, n2, n3, ml }: { n1: NodeData; n2: NodeData; n3: No
   );
 }
 
-// ── ML Panel ───────────────────────────────────────────────────────────────────
+// ── Network Analyzer (ML + SHAP Force Plot) ───────────────────────────────────
 export function MLPanel({ ml }: { ml: MLState }) {
+  const top5   = (ml.shap ?? []).slice(0, 5);
+  const maxAbs = top5.length ? Math.max(...top5.map(s => Math.abs(s.value)), 0.001) : 1;
+
   return (
     <div className="card">
-      <div className="card-header"><span className="card-title">Network Analyzer</span></div>
+      <div className="card-header">
+        <span className="card-title">Network Analyzer</span>
+        <span className={`card-tag ${ml.isAttack ? "red" : "green"}`}>
+          {ml.label === "AWAITING" ? "AWAITING" : ml.isAttack ? "THREAT" : "NORMAL"}
+        </span>
+      </div>
       <div className="card-body">
+        {/* Classification result */}
         <div className={`ml-class-display ${ml.isAttack ? "threat" : ""}`}>
           <div>
             <div className="ml-class-name">{ml.label}</div>
@@ -141,12 +150,82 @@ export function MLPanel({ ml }: { ml: MLState }) {
             </div>
           </div>
         </div>
-        <div className="ml-features">
-          <div className="ml-feat"><div className="ml-feat-name">pkt_rate</div><div className={`ml-feat-value ${ml.pktRate > 10 ? "anomalous" : ""}`}>{ml.pktRate.toFixed(1)}</div></div>
-          <div className="ml-feat"><div className="ml-feat-name">iat_mean (ms)</div><div className={`ml-feat-value ${ml.iatMean > 0 && ml.iatMean < 500 ? "anomalous" : ""}`}>{ml.iatMean}</div></div>
-          <div className="ml-feat"><div className="ml-feat-name">dup_ratio</div><div className={`ml-feat-value ${ml.dupRatio > 0.5 ? "anomalous" : ""}`}>{ml.dupRatio.toFixed(2)}</div></div>
-          <div className="ml-feat"><div className="ml-feat-name">seq_gap</div><div className={`ml-feat-value ${ml.seqGap === 0 ? "anomalous" : ""}`}>{ml.seqGap}</div></div>
-        </div>
+
+        {/* SHAP Force Plot */}
+        {top5.length > 0 ? (
+          <div className="shap-section">
+            <div className="shap-title">Feature Importance (SHAP)</div>
+            {top5.map((s, i) => {
+              const pct = Math.abs(s.value) / maxAbs * 100;
+              const pos = s.value > 0;
+              return (
+                <div key={i} className="shap-row">
+                  <div className="shap-feat-name" title={s.feature}>{s.feature.replace(/_/g, " ")}</div>
+                  <div className="shap-bar-track">
+                    <div className={`shap-bar-fill ${pos ? "shap-pos" : "shap-neg"}`} style={{ width: `${pct}%` }} />
+                  </div>
+                  <div className="shap-raw">{s.raw}</div>
+                  <div className={`shap-val ${pos ? "shap-val-pos" : "shap-val-neg"}`}>
+                    {pos ? "+" : ""}{s.value.toFixed(3)}
+                  </div>
+                </div>
+              );
+            })}
+            <div className="shap-legend">
+              <span className="shap-leg-dot shap-pos-dot" /> Toward attack &nbsp;&nbsp;
+              <span className="shap-leg-dot shap-neg-dot" /> Toward normal
+            </div>
+          </div>
+        ) : (
+          <div className="ml-features">
+            <div className="ml-feat"><div className="ml-feat-name">pkt_rate</div><div className={`ml-feat-value ${ml.pktRate > 10 ? "anomalous" : ""}`}>{ml.pktRate.toFixed(1)}</div></div>
+            <div className="ml-feat"><div className="ml-feat-name">iat_mean (ms)</div><div className={`ml-feat-value ${ml.iatMean > 0 && ml.iatMean < 500 ? "anomalous" : ""}`}>{ml.iatMean}</div></div>
+            <div className="ml-feat"><div className="ml-feat-name">dup_ratio</div><div className={`ml-feat-value ${ml.dupRatio > 0.5 ? "anomalous" : ""}`}>{ml.dupRatio.toFixed(2)}</div></div>
+            <div className="ml-feat"><div className="ml-feat-name">seq_gap</div><div className={`ml-feat-value ${ml.seqGap === 0 ? "anomalous" : ""}`}>{ml.seqGap}</div></div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Device Heatmap ────────────────────────────────────────────────────────────
+export function HeatmapPanel({ n1, n2, n3, ml }: { n1: NodeData; n2: NodeData; n3: NodeData; ml: MLState }) {
+  const cells = [
+    { id: "ESP32_1", icon: "🌡", label: "DHT22 Sensor", online: n1.online, trust: n1.trust,
+      metric: `${n1.temp?.toFixed(1) ?? "—"}°C`, sub: `Humidity ${n1.humidity?.toFixed(0) ?? "—"}%`,
+      threat: n1.trust < 40, warn: n1.trust < 70 },
+    { id: "ESP32_2", icon: "💡", label: "LDR Sensor", online: n2.online, trust: n2.trust,
+      metric: `${n2.light ?? "—"} LUX`, sub: (n2.light ?? 0) > 500 ? "Daytime ☀" : "Nighttime 🌙",
+      threat: n2.trust < 40, warn: n2.trust < 70 },
+    { id: "ESP32_3", icon: "📷", label: "PIR Motion", online: n3.online, trust: n3.trust,
+      metric: `${n3.pktRate} pkt/s`, sub: ml.isAttack ? ml.label.replace(/_/g, " ") : "Monitoring",
+      threat: ml.isAttack || n3.trust < 40, warn: n3.trust < 70 },
+  ];
+  const atRisk = cells.filter(c => c.threat).length;
+
+  return (
+    <div className="card">
+      <div className="card-header">
+        <span className="card-title">Device Threat Heatmap</span>
+        <span className={`card-tag ${atRisk > 0 ? "red" : "green"}`}>
+          {atRisk > 0 ? `${atRisk} node${atRisk > 1 ? "s" : ""} at risk` : "All clear"}
+        </span>
+      </div>
+      <div className="heatmap-grid">
+        {cells.map(c => (
+          <div key={c.id} className={`heatmap-cell ${!c.online ? "heatmap-offline" : c.threat ? "heatmap-threat" : c.warn ? "heatmap-warn" : "heatmap-ok"}`}>
+            <div className="heatmap-icon">{c.icon}</div>
+            <div className="heatmap-id">{c.id}</div>
+            <div className="heatmap-label">{c.label}</div>
+            <div className="heatmap-metric">{c.online ? c.metric : "Offline"}</div>
+            <div className="heatmap-sub">{c.online ? c.sub : "—"}</div>
+            <div className="heatmap-trust-bar">
+              <div className="heatmap-trust-fill" style={{ width: `${c.trust}%`, background: c.threat ? "var(--red)" : c.warn ? "var(--amber)" : "var(--green)" }} />
+            </div>
+            <div className="heatmap-trust-pct">{c.trust}%</div>
+          </div>
+        ))}
       </div>
     </div>
   );
