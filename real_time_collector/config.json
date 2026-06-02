@@ -1,0 +1,20 @@
+{
+  "broker": "broker.hivemq.com",
+  "port": 1883,
+  "topics": {
+    "netguard/device1": {
+      "device_id": "esp32_1",
+      "description": "DHT22 Node (Temperature & Humidity)"
+    },
+    "netguard/device2": {
+      "device_id": "esp32_2",
+      "description": "LDR Node (Light Intensity)"
+    },
+    "netguard/attacker": {
+      "device_id": "esp32_3",
+      "description": "Attacker Node / Simulation Trigger"
+    }
+  },
+  "output_directory": "./collected_datasets",
+  "default_label": "NORMAL"
+}

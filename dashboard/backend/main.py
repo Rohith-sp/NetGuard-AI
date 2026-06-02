@@ -44,7 +44,7 @@ IST = timezone(timedelta(hours=5, minutes=30))
 
 # ── Load Model ────────────────────────────────────────────────────────────────
 MODEL_PATH = os.path.normpath(os.path.join(
-    os.path.dirname(__file__), "..", "..", "mqtt_collector", "netguard_model.pkl"
+    os.path.dirname(__file__), "..", "..", "ml_model", "netguard_model.pkl"
 ))
 
 try:
@@ -81,6 +81,9 @@ latest_inference = {
     "dup_ratio": 0.0, "seq_gap": 1,
 }
 
+# Cooldown tracker — prevents buzzer spam on sustained attacks
+_last_alert_time: float = 0.0
+
 # ── Feature extraction from packet buffer ────────────────────────────────────
 def safe_mean(v): return sum(v) / len(v) if v else 0.0
 def safe_std(v):
@@ -90,11 +93,16 @@ def safe_std(v):
 
 def extract_features(pkts: list, window_sec: float = 5.0) -> dict:
     n = len(pkts)
-    if n < 2:
+    if n < 1:
         return None
 
     timestamps = sorted(p["ts"] for p in pkts)
-    iats = [(timestamps[i+1] - timestamps[i]) * 1000 for i in range(len(timestamps)-1)]
+    if len(timestamps) > 1:
+        iats = [(timestamps[i+1] - timestamps[i]) * 1000 for i in range(len(timestamps)-1)]
+    else:
+        # Single packet in the window — hallmark of Slow Rate Attack
+        # Treat the whole window duration as one giant IAT (matches training augmentation)
+        iats = [window_sec * 1000]
 
     seqs = [p["seq"] for p in pkts if p["seq"] >= 0]
     seq_incs = [seqs[i+1] - seqs[i] for i in range(len(seqs)-1)]
@@ -120,7 +128,7 @@ def extract_features(pkts: list, window_sec: float = 5.0) -> dict:
 
 # ── ML Inference Loop (every 5 seconds) ───────────────────────────────────────
 async def inference_loop():
-    global latest_inference
+    global latest_inference, _last_alert_time
     await asyncio.sleep(6)
     print("[ML] Inference loop started")
 
@@ -130,7 +138,7 @@ async def inference_loop():
             now = time.time()
             window = [p for p in packet_buffer if now - p["ts"] <= 10.0]
 
-            if len(window) < 2 or model is None:
+            if len(window) < 1 or model is None:
                 if model is None: print("[ML] Model not loaded — skipping")
                 continue
 
@@ -184,6 +192,21 @@ async def inference_loop():
             out = json.dumps({"topic": "netguard/inference", **latest_inference})
             if _loop:
                 asyncio.run_coroutine_threadsafe(broadcast(out), _loop)
+
+            # ── Publish physical alert to ESP32 nodes via MQTT ───────────────
+            if is_attack:
+                # Cooldown: only publish once per 30s to avoid spamming the buzzer
+                alert_age = time.time() - _last_alert_time
+                if alert_age >= 30.0:
+                    _last_alert_time = time.time()
+                    alert_payload = json.dumps({
+                        "source":     "NetGuard-AI",
+                        "type":       "ATTACK_DETECTED",
+                        "label":      pred_label,
+                        "confidence": confidence,
+                    })
+                    mqtt_client.publish("netguard/alerts", alert_payload)
+                    print(f"[ALERT] Published to netguard/alerts → {pred_label} ({confidence}%)")
 
             print(f"[ML] {pred_label} ({confidence}%) | rate={feats['packet_rate']} iat={feats['mean_inter_arrival_ms']}ms dup={feats['duplicate_ratio']}")
 

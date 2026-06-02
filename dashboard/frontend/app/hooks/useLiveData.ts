@@ -12,6 +12,7 @@ export interface PacketEntry  { id: number; time: string; label: string; device:
 export interface AlertEntry   { id: number; time: string; title: string; severity: "CRITICAL"|"HIGH"|"MEDIUM"|"LOW"; device: string; meta: string; }
 export interface TemporalPoint{ t: string; anomaly: number; r1: number; r2: number; r3: number; }
 export interface MLState       { label: string; confidence: number; isAttack: boolean; pktRate: number; iatMean: number; dupRatio: number; seqGap: number; shap: {feature:string;value:number;raw:number}[]; }
+export interface SensorPoint  { t: string; temp?: number; humidity?: number; light?: number; }
 
 const ATTACKS = ["DOS_FLOOD", "REPLAY_ATTACK", "SLOW_RATE_ATTACK"];
 
@@ -23,10 +24,11 @@ export function useLiveData() {
   });
   const [packets, setPackets]   = useState<PacketEntry[]>([]);
   const [alerts,  setAlerts]    = useState<AlertEntry[]>([]);
-  const [temporal,setTemporal]  = useState<TemporalPoint[]>([]);
-  const [ml,      setML]        = useState<MLState>({ label:"AWAITING", confidence:0, isAttack:false, pktRate:0, iatMean:0, dupRatio:0, seqGap:1, shap:[] });
-  const [totalPkts,setTotal]    = useState(0);
-  const [wsReady, setWsReady]   = useState(false);
+  const [temporal,setTemporal]        = useState<TemporalPoint[]>([]);
+  const [sensorTemporal,setSensorTemporal] = useState<SensorPoint[]>([]);
+  const [ml,      setML]               = useState<MLState>({ label:"AWAITING", confidence:0, isAttack:false, pktRate:0, iatMean:0, dupRatio:0, seqGap:1, shap:[] });
+  const [totalPkts,setTotal]           = useState(0);
+  const [wsReady, setWsReady]          = useState(false);
 
   const pktIdRef   = useRef(0);
   const alertIdRef = useRef(0);
@@ -100,6 +102,7 @@ export function useLiveData() {
           else if (d.topic === "netguard/device1") {
             pktRateRef.current.esp32_1 = +(pktRateRef.current.esp32_1 * 0.8 + 0.5).toFixed(1);
             setNodes(n => ({ ...n, esp32_1: { ...n.esp32_1, temp: d.temp, humidity: d.humidity, pktRate: +pktRateRef.current.esp32_1.toFixed(1), lastSeen: now, online: true } }));
+            setSensorTemporal(s => [...s, { t: now, temp: d.temp, humidity: d.humidity }].slice(-80));
             const entry: PacketEntry = { id: ++pktIdRef.current, time: now, label:"LEGITIMATE", device:"netguard/device1", iat:0 };
             setPackets(p => [entry, ...p].slice(0, 120));
             setTotal(p => p + 1);
@@ -109,6 +112,7 @@ export function useLiveData() {
           else if (d.topic === "netguard/device2") {
             pktRateRef.current.esp32_2 = +(pktRateRef.current.esp32_2 * 0.8 + 0.5).toFixed(1);
             setNodes(n => ({ ...n, esp32_2: { ...n.esp32_2, light: d.light, pktRate: +pktRateRef.current.esp32_2.toFixed(1), lastSeen: now, online: true } }));
+            setSensorTemporal(s => [...s, { t: now, light: d.light }].slice(-80));
             const entry: PacketEntry = { id: ++pktIdRef.current, time: now, label:"LEGITIMATE", device:"netguard/device2", iat:0 };
             setPackets(p => [entry, ...p].slice(0, 120));
             setTotal(p => p + 1);
@@ -136,5 +140,5 @@ export function useLiveData() {
     }
   }, []);
 
-  return { nodes, packets, alerts, temporal, ml, totalPkts, wsReady, triggerAttack };
+  return { nodes, packets, alerts, temporal, sensorTemporal, ml, totalPkts, wsReady, triggerAttack };
 }

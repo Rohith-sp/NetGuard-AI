@@ -4,13 +4,7 @@ import { useLiveData } from "./hooks/useLiveData";
 import { AnomalyGraph, PktRateGraph } from "./components/Graphs";
 import { KpiRow, NodeRow, MLPanel, AlertLog, PacketFeed, HeatmapPanel } from "./components/Panels";
 import TopologyTab from "./components/TopologyTab";
-
-const ATTACK_MODES = [
-  { key: "NORMAL",           name: "Normal Traffic",   desc: "Mimics legitimate sensor timing ~2–5s intervals", cls: "normal" },
-  { key: "DOS_FLOOD",        name: "DoS Flood Attack", desc: "Rapid-fire packets every 0.15–0.35s",             cls: "dos"    },
-  { key: "REPLAY_ATTACK",    name: "Replay Attack",    desc: "Frozen seq number repeated 0.8–1.5s intervals",   cls: "replay" },
-  { key: "SLOW_RATE_ATTACK", name: "Slow-Rate Probe",  desc: "Ghost packets every 15–30s to evade detection",   cls: "slow"   },
-];
+import AnalyticsTab from "./components/AnalyticsTab";
 
 function renderMarkdown(text: string) {
   let html = text
@@ -26,9 +20,8 @@ function renderMarkdown(text: string) {
 }
 
 export default function Page() {
-  const { nodes, packets, alerts, temporal, ml, totalPkts, wsReady, triggerAttack } = useLiveData();
-  const [tab, setTab] = useState<"overview" | "attacker" | "topology" | "chat">("overview");
-  const [selectedMode, setMode]   = useState("NORMAL");
+  const { nodes, packets, alerts, temporal, sensorTemporal, ml, totalPkts, wsReady } = useLiveData();
+  const [tab, setTab] = useState<"overview" | "analytics" | "topology" | "chat">("analytics");
   const [clock, setClock]         = useState("—");
   const [chatMsgs, setChatMsgs]   = useState([{ from: "AI", text: "NetGuard AI online. Ask me about the current network state." }]);
   const [chatInput, setChatInput] = useState("");
@@ -97,10 +90,10 @@ export default function Page() {
           </div>
         </div>
         <nav className="header-nav">
+          <span className={`nav-item ${tab === "analytics" ? "active" : ""}`} onClick={() => setTab("analytics")}>Live Analytics</span>
           <span className={`nav-item ${tab === "overview"  ? "active" : ""}`} onClick={() => setTab("overview")}>Overview</span>
           <span className={`nav-item ${tab === "topology"  ? "active" : ""}`} onClick={() => setTab("topology")}>Topology</span>
           <span className={`nav-item ${tab === "chat"      ? "active" : ""}`} onClick={() => setTab("chat")}>AI Analyst</span>
-          <span className={`nav-item ${tab === "attacker"  ? "active" : ""}`} onClick={() => setTab("attacker")}>Attacker Control</span>
         </nav>
         <div className="header-right">
           {alerts.length > 0 && <div className="alert-pill">⚠ {alerts.length} alerts</div>}
@@ -112,8 +105,8 @@ export default function Page() {
       <main className="main">
         <div className="page-title-row">
           <div>
-            <div className="page-title">{tab === "overview" ? "Network Overview" : tab === "topology" ? "Network Topology" : tab === "chat" ? "AI Security Analyst" : "Attacker Control Panel"}</div>
-            <div className="page-subtitle">Semester IV · 3 nodes monitored</div>
+            <div className="page-title">{tab === "analytics" ? "Live Sensor Analytics" : tab === "overview" ? "Network Overview" : tab === "topology" ? "Network Topology" : "AI Security Analyst"}</div>
+            <div className="page-subtitle">{tab === "analytics" ? "Real-time temperature, humidity & light readings from your IoT nodes" : "Semester IV · 3 nodes monitored"}</div>
           </div>
         </div>
 
@@ -165,6 +158,11 @@ export default function Page() {
           </>
         )}
 
+        {/* ── ANALYTICS TAB ─────────────────────────────────────────────── */}
+        {tab === "analytics" && (
+          <AnalyticsTab data={sensorTemporal} n1={nodes.esp32_1} n2={nodes.esp32_2} />
+        )}
+
         {/* ── TOPOLOGY TAB ──────────────────────────────────────────────── */}
         {tab === "topology" && (
           <div className="card" style={{ padding: 24 }}>
@@ -175,48 +173,7 @@ export default function Page() {
           </div>
         )}
 
-        {/* ── ATTACKER TAB ──────────────────────────────────────────────── */}
-        {tab === "attacker" && (
-          <div className="card">
-            <div className="card-header">
-              <span className="card-title">ESP32_3 — Attack Mode Control</span>
-              <span className={`card-tag ${wsReady ? "green" : "amber"}`}>{wsReady ? "CONNECTED" : "BACKEND OFFLINE"}</span>
-            </div>
-            <div className="atk-panel">
-              <div style={{ fontSize: 13, color: "var(--text-3)" }}>
-                Select a mode and click <strong>Trigger</strong> to send a command to the Wokwi ESP32_3 via MQTT (<code style={{ fontFamily: "var(--mono)", background: "var(--surface2)", padding: "1px 5px", borderRadius: 3 }}>netguard/cmd</code>).
-              </div>
 
-              <div className="atk-mode-grid">
-                {ATTACK_MODES.map(m => (
-                  <div key={m.key} className={`atk-mode-card ${selectedMode === m.key ? `selected-${m.cls}` : ""}`} onClick={() => setMode(m.key)}>
-                    <div className="atk-mode-name" style={{ color: m.key === "NORMAL" ? "var(--green)" : m.key === "DOS_FLOOD" ? "var(--red)" : m.key === "REPLAY_ATTACK" ? "var(--amber)" : "var(--blue)" }}>{m.name}</div>
-                    <div className="atk-mode-desc">{m.desc}</div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="atk-action-row">
-                <button className={`btn ${selectedMode === "NORMAL" ? "btn-primary" : selectedMode === "DOS_FLOOD" ? "btn-danger" : "btn-amber"}`}
-                  onClick={() => triggerAttack(selectedMode)}>
-                  ▶ Trigger {selectedMode.replace(/_/g, " ")}
-                </button>
-                <button className="btn btn-secondary" onClick={() => { triggerAttack("NORMAL"); setMode("NORMAL"); }}>
-                  Reset to Normal
-                </button>
-              </div>
-
-              <div className="atk-status-bar">
-                <span style={{ color: "var(--text-3)" }}>Current mode: </span>
-                <span style={{ color: nodes.esp32_3?.mode && ["DOS_FLOOD","REPLAY_ATTACK","SLOW_RATE_ATTACK"].includes(nodes.esp32_3.mode) ? "var(--red)" : "var(--green)", fontWeight: 500 }}>
-                  {nodes.esp32_3?.mode ?? "—"}
-                </span>
-                <span style={{ color: "var(--text-3)", marginLeft: 16 }}>Seq: {nodes.esp32_3?.seq ?? 0}</span>
-                <span style={{ color: "var(--text-3)", marginLeft: 16 }}>Last seen: {nodes.esp32_3?.lastSeen ?? "—"}</span>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* ── AI ANALYST TAB ────────────────────────────────────────────── */}
         {tab === "chat" && (
