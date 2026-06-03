@@ -8,9 +8,8 @@ env/
 venv/
 .venv/
 
-# Machine Learning — model is large, keep local
-*.pkl
-*.model
+# Machine Learning model files — tracked intentionally
+# *.pkl  <- kept tracked so netguard_model.pkl is in the repo
 
 # PlatformIO build artifacts
 .pio/
@@ -22,9 +21,11 @@ venv/
 # VS Code
 .vscode/
 
+# Node modules (anywhere in the repo)
+node_modules/
+
 # Next.js
 dashboard/frontend/.next/
-dashboard/frontend/node_modules/
 
 # Environment / secrets
 .env
