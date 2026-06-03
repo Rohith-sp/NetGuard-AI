@@ -53,9 +53,16 @@ try:
     print(f"[ML] Model loaded from {MODEL_PATH}")
     print(f"[ML] Classes: {model.classes_}")
     EXPLAINER = shap.TreeExplainer(model) if HAS_SHAP else None
+    # Global feature importance (computed once from model weights)
+    GLOBAL_IMPORTANCE = [
+        {"feature": FEATURE_COLS[i], "importance": round(float(model.feature_importances_[i]) * 100, 2)}
+        for i in range(len(FEATURE_COLS))
+    ] if model else []
+    GLOBAL_IMPORTANCE.sort(key=lambda x: -x["importance"])
 except Exception as e:
-    model    = None
-    EXPLAINER= None
+    model         = None
+    EXPLAINER     = None
+    GLOBAL_IMPORTANCE = []
     print(f"[ML] WARNING: Could not load model: {e}")
 
 # Feature columns the model was trained on (must match feature_extractor.py)
@@ -83,6 +90,10 @@ latest_inference = {
 
 # Cooldown tracker — prevents buzzer spam on sustained attacks
 _last_alert_time: float = 0.0
+
+# Latest auto-generated incident narrative (RAG-powered)
+latest_incident: dict = {"text": "", "label": "", "ts": ""}
+_last_incident_time: float = 0.0   # cooldown: generate max once per 60s
 
 # ── Feature extraction from packet buffer ────────────────────────────────────
 def safe_mean(v): return sum(v) / len(v) if v else 0.0
@@ -128,7 +139,7 @@ def extract_features(pkts: list, window_sec: float = 5.0) -> dict:
 
 # ── ML Inference Loop (every 5 seconds) ───────────────────────────────────────
 async def inference_loop():
-    global latest_inference, _last_alert_time
+    global latest_inference, _last_alert_time, latest_incident, _last_incident_time
     await asyncio.sleep(6)
     print("[ML] Inference loop started")
 
@@ -206,14 +217,78 @@ async def inference_loop():
                         "confidence": confidence,
                     })
                     mqtt_client.publish("netguard/alerts", alert_payload)
-                    print(f"[ALERT] Published to netguard/alerts → {pred_label} ({confidence}%)")
+                    print(f"[ALERT] Published to netguard/alerts -> {pred_label} ({confidence}%)")
+
+                # ── Auto-generate Incident Narrative via RAG (60s cooldown) ──
+                incident_age = time.time() - _last_incident_time
+                if incident_age >= 60.0:
+                    _last_incident_time = time.time()
+                    asyncio.create_task(_generate_incident_narrative(pred_label, confidence, feats, shap_out))
 
             print(f"[ML] {pred_label} ({confidence}%) | rate={feats['packet_rate']} iat={feats['mean_inter_arrival_ms']}ms dup={feats['duplicate_ratio']}")
 
         except Exception as e:
             print(f"[ML] Inference error: {e}")
 
+# ── Auto Incident Narrative (RAG-powered) ─────────────────────────────────────
+async def _generate_incident_narrative(label: str, confidence: float, feats: dict, shap_vals: list):
+    """Generates a 3-sentence human-readable incident report using the RAG analyst."""
+    global latest_incident
+    try:
+        loop = asyncio.get_event_loop()
+        top_shap = shap_vals[:3] if shap_vals else []
+        shap_text = ", ".join(
+            f"{s['feature']}={s['raw']} (SHAP:{s['value']:+.3f})" for s in top_shap
+        ) if top_shap else "unavailable"
+
+        prompt = (
+            f"Generate a concise 3-sentence security incident report for a SOC dashboard. "
+            f"An attack was just detected. Use ONLY these facts — do not invent anything:\n"
+            f"- Attack type: {label.replace('_', ' ')}\n"
+            f"- Model confidence: {confidence}%\n"
+            f"- Packet rate: {feats.get('packet_rate', 0)} pkt/s (normal baseline ~0.3 pkt/s)\n"
+            f"- Mean inter-arrival time: {feats.get('mean_inter_arrival_ms', 0):.0f} ms\n"
+            f"- Duplicate ratio: {feats.get('duplicate_ratio', 0)*100:.1f}%\n"
+            f"- Seq increment mean: {feats.get('seq_increment_mean', 1):.2f}\n"
+            f"- Top SHAP drivers: {shap_text}\n\n"
+            f"Format: Sentence 1 = what was detected and when. "
+            f"Sentence 2 = which features drove the model decision (cite SHAP values). "
+            f"Sentence 3 = brief SOC recommendation. "
+            f"Write in plain professional English, no markdown, no bullet points, no headers."
+        )
+
+        from rag import call_groq_llm, call_gemini_llm
+        narrative = await loop.run_in_executor(None, lambda: call_groq_llm("You are a terse, expert SOC incident writer.", prompt))
+        if not narrative:
+            narrative = await loop.run_in_executor(None, lambda: call_gemini_llm(f"You are a terse, expert SOC incident writer.\n\n{prompt}"))
+        if not narrative:
+            # Deterministic fallback
+            top_feat = top_shap[0]["feature"].replace("_", " ") if top_shap else "packet rate"
+            narrative = (
+                f"A {label.replace('_', ' ')} was detected at {datetime.now(IST).strftime('%H:%M:%S IST')} "
+                f"with {confidence}% model confidence. "
+                f"The primary indicator was {top_feat} (SHAP: {top_shap[0]['value']:+.3f}), "
+                f"with a packet rate of {feats.get('packet_rate', 0)} pkt/s against a normal baseline of 0.3 pkt/s. "
+                f"Recommend isolating the attacker node and monitoring for follow-up activity."
+            ) if top_shap else (
+                f"A {label.replace('_', ' ')} was detected with {confidence}% confidence. "
+                f"Packet rate spiked to {feats.get('packet_rate', 0)} pkt/s. "
+                f"Immediate investigation recommended."
+            )
+
+        latest_incident = {
+            "text":  narrative,
+            "label": label,
+            "ts":    datetime.now(IST).strftime("%H:%M:%S IST"),
+        }
+        out = json.dumps({"topic": "netguard/incident", **latest_incident})
+        await broadcast(out)
+        print(f"[INCIDENT] Narrative generated and broadcast for {label}")
+    except Exception as e:
+        print(f"[INCIDENT] Error generating narrative: {e}")
+
 # ── IST Helper ────────────────────────────────────────────────────────────────
+
 def ist_hour() -> float:
     n = datetime.now(IST)
     return n.hour + n.minute / 60.0 + n.second / 3600.0
@@ -421,3 +496,12 @@ async def health():
 async def debug():
     return {"last_20_mqtt_messages": last_messages, "latest_inference": latest_inference}
 
+@app.get("/incident")
+async def get_incident():
+    """Returns the latest auto-generated incident narrative."""
+    return latest_incident
+
+@app.get("/feature-importance")
+async def get_feature_importance():
+    """Returns global feature importances from the trained model."""
+    return {"features": GLOBAL_IMPORTANCE, "model_classes": list(model.classes_) if model else []}

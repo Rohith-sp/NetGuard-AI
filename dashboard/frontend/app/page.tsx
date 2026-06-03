@@ -5,6 +5,8 @@ import { AnomalyGraph, PktRateGraph } from "./components/Graphs";
 import { KpiRow, NodeRow, MLPanel, AlertLog, PacketFeed, HeatmapPanel } from "./components/Panels";
 import TopologyTab from "./components/TopologyTab";
 import AnalyticsTab from "./components/AnalyticsTab";
+import IncidentReport from "./components/IncidentReport";
+import GlobalImportanceChart from "./components/GlobalImportanceChart";
 
 function renderMarkdown(text: string) {
   let html = text
@@ -20,8 +22,10 @@ function renderMarkdown(text: string) {
 }
 
 export default function Page() {
-  const { nodes, packets, alerts, temporal, sensorTemporal, ml, totalPkts, wsReady } = useLiveData();
+  const { nodes, packets, alerts, temporal, sensorTemporal, ml, incident, totalPkts, wsReady, simulate } = useLiveData();
   const [tab, setTab] = useState<"overview" | "analytics" | "topology" | "chat">("analytics");
+  const [demoMode, setDemoMode] = useState("NORMAL");
+  const [demoActive, setDemoActive] = useState(false);
   const [clock, setClock]         = useState("—");
   const [chatMsgs, setChatMsgs]   = useState([{ from: "AI", text: "NetGuard AI online. Ask me about the current network state." }]);
   const [chatInput, setChatInput] = useState("");
@@ -115,6 +119,36 @@ export default function Page() {
           <>
             <KpiRow totalPkts={totalPkts} alertCount={alerts.length} anomaly={latestAnomaly} nodesOnline={nodesOnline} />
 
+            {/* Demo Mode Panel */}
+            <div className="demo-bar">
+              <div className="demo-bar-label">
+                <span className="demo-icon">⚡</span>
+                <span>Demo Mode</span>
+                {demoActive && <span className="demo-active-pill">SIMULATING</span>}
+              </div>
+              <div className="demo-bar-btns">
+                {(["NORMAL","DOS_FLOOD","REPLAY_ATTACK","SLOW_RATE_ATTACK"] as const).map(m => {
+                  const colors: Record<string,string> = { NORMAL:"var(--green)", DOS_FLOOD:"var(--red)", REPLAY_ATTACK:"var(--amber)", SLOW_RATE_ATTACK:"var(--blue)" };
+                  const labels: Record<string,string> = { NORMAL:"Normal", DOS_FLOOD:"DoS Flood", REPLAY_ATTACK:"Replay", SLOW_RATE_ATTACK:"Slow Rate" };
+                  const active = demoMode === m && demoActive;
+                  return (
+                    <button key={m}
+                      className="demo-btn"
+                      style={{ borderColor: active ? colors[m] : "var(--border)", color: active ? colors[m] : "var(--text-2)", background: active ? `${colors[m]}18` : "var(--surface2)" }}
+                      onClick={() => { setDemoMode(m); setDemoActive(true); simulate(m); }}>
+                      {labels[m]}
+                    </button>
+                  );
+                })}
+                {demoActive && (
+                  <button className="demo-btn" style={{ borderColor: "var(--border)", color: "var(--text-3)" }}
+                    onClick={() => setDemoActive(false)}>
+                    ✕ Clear
+                  </button>
+                )}
+              </div>
+            </div>
+
             <div className="section-divider">Device Status</div>
             <NodeRow n1={nodes.esp32_1} n2={nodes.esp32_2} n3={nodes.esp32_3} ml={ml} />
 
@@ -151,6 +185,8 @@ export default function Page() {
 
               <div className="grid-right">
                 <MLPanel ml={ml} />
+                {incident.text && <IncidentReport incident={incident} />}
+                <GlobalImportanceChart />
                 <HeatmapPanel n1={nodes.esp32_1} n2={nodes.esp32_2} n3={nodes.esp32_3} ml={ml} />
                 <AlertLog alerts={alerts} />
               </div>
