@@ -5,8 +5,8 @@
 // ==========================================
 // 1. WiFi & MQTT Configuration
 // ==========================================
-const char* ssid        = "YOUR_WIFI_SSID";
-const char* password    = "YOUR_WIFI_PASSWORD";
+const char* ssid        = "wifi-name";
+const char* password    = "wifi-password";
 const char* mqtt_server = "broker.hivemq.com";
 const int   mqtt_port   = 1883;
 
@@ -65,7 +65,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     msg += (char)payload[i];
   }
   
-  Serial.println("\n⚠️⚠️ WARNING! ALERT RECEIVED: " + msg);
+  Serial.println("\n WARNING! ALERT RECEIVED: " + msg);
   
   underAttack = true;
   attackStartTime = millis(); 

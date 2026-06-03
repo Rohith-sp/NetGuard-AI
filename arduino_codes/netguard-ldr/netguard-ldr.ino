@@ -4,8 +4,8 @@
 // ==========================================
 // 1. WiFi & MQTT Configuration
 // ==========================================
-const char* ssid        = "YOUR_WIFI_SSID";
-const char* password    = "YOUR_WIFI_PASSWORD";
+const char* ssid        = "wifi-name";
+const char* password    = "wifi-password";
 const char* mqtt_server = "broker.hivemq.com";
 const int   mqtt_port   = 1883;
 
