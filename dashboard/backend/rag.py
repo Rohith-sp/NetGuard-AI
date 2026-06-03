@@ -183,7 +183,7 @@ def run_expert_system(question: str, kb: str, logs: list, inference: dict) -> st
         rep = "### Live Sensor Node Telemetry\n"
         if dht_log:
             try:
-                p = re.findall(r'"temp":\s*([\d\.]+),\s*"humidity":\s*([\d\.]+)', dht_log["payload"])[0]
+                p = re.findall(r'"temp":\s*([\d\.]+),\s*"(?:humidity|hum)":\s*([\d\.]+)', dht_log["payload"])[0]
                 rep += f"* 🌡 **ESP32_1 (DHT22):** Temperature = {p[0]}°C, Humidity = {p[1]}%\n"
             except:
                 rep += f"* 🌡 **ESP32_1 (DHT22):** Online (Data syncing)\n"
