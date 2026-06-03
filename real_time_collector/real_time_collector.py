@@ -159,7 +159,7 @@ def on_message(client, userdata, msg):
     mode = payload.get("mode", "NORMAL")
     seq = payload.get("seq", -1)
     temp = payload.get("temp", -1)
-    hum = payload.get("humidity", -1)
+    hum = payload.get("humidity") if payload.get("humidity") is not None else payload.get("hum", -1)
     light = payload.get("light", -1)
     
     # Determine Ground Truth Label
