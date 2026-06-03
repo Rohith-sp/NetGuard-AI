@@ -13,6 +13,9 @@ from fastapi.middleware.cors import CORSMiddleware
 import paho.mqtt.client as mqtt
 from pydantic import BaseModel
 import numpy as np
+import joblib
+
+
 
 # ── Load .env manually if exists ──────────────────────────────────────────────
 env_path = os.path.join(os.path.dirname(__file__), ".env")
@@ -42,14 +45,22 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
+# Feature columns the model was trained on (must match feature_extractor.py)
+FEATURE_COLS = [
+    "packet_count", "packet_rate",
+    "mean_inter_arrival_ms", "std_inter_arrival_ms",
+    "min_inter_arrival_ms",  "max_inter_arrival_ms",
+    "duplicate_ratio", "seq_increment_mean", "seq_increment_std",
+    "unique_modes",
+]
+
 # ── Load Model ────────────────────────────────────────────────────────────────
 MODEL_PATH = os.path.normpath(os.path.join(
     os.path.dirname(__file__), "..", "..", "ml_model", "netguard_model.pkl"
 ))
 
 try:
-    with open(MODEL_PATH, "rb") as f:
-        model = pickle.load(f)
+    model = joblib.load(MODEL_PATH)
     print(f"[ML] Model loaded from {MODEL_PATH}")
     print(f"[ML] Classes: {model.classes_}")
     EXPLAINER = shap.TreeExplainer(model) if HAS_SHAP else None
@@ -64,15 +75,6 @@ except Exception as e:
     EXPLAINER     = None
     GLOBAL_IMPORTANCE = []
     print(f"[ML] WARNING: Could not load model: {e}")
-
-# Feature columns the model was trained on (must match feature_extractor.py)
-FEATURE_COLS = [
-    "packet_count", "packet_rate",
-    "mean_inter_arrival_ms", "std_inter_arrival_ms",
-    "min_inter_arrival_ms",  "max_inter_arrival_ms",
-    "duplicate_ratio", "seq_increment_mean", "seq_increment_std",
-    "unique_modes",
-]
 
 # ── Shared State ──────────────────────────────────────────────────────────────
 connected_ws : list[WebSocket] = []
@@ -340,7 +342,8 @@ def on_message(client, userdata, msg):
             })
 
         elif topic == "netguard/device1":
-            out = json.dumps({"topic": topic, "temp": data.get("temp"), "humidity": data.get("humidity"), "ist_hour": data.get("ist_hour"), "synced": data.get("synced", False)})
+            hum_val = data.get("humidity") if data.get("humidity") is not None else data.get("hum")
+            out = json.dumps({"topic": topic, "temp": data.get("temp"), "humidity": hum_val, "ist_hour": data.get("ist_hour"), "synced": data.get("synced", False)})
 
         elif topic == "netguard/device2":
             out = json.dumps({"topic": topic, "light": data.get("light"), "ist_hour": data.get("ist_hour"), "synced": data.get("synced", False)})
