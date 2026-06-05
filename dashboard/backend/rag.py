@@ -9,13 +9,7 @@ import os
 import re
 import requests
 
-# ── Dynamic import for Gemini safety ──────────────────────────────────────────
-HAS_GEMINI = False
-try:
-    import google.generativeai as genai
-    HAS_GEMINI = True
-except ImportError:
-    pass
+
 
 # ── Load DATASETS.md Knowledge Base ──────────────────────────────────────────
 DATASETS_PATH = os.path.normpath(os.path.join(
@@ -69,8 +63,8 @@ def call_groq_llm(system_prompt: str, user_question: str) -> str:
         "llama3-8b-8192"
     ]
     
-    for api_key in keys:
-        for model in models:
+    for model in models:
+        for api_key in keys:
             try:
                 headers = {
                     "Authorization": f"Bearer {api_key}",
@@ -93,28 +87,16 @@ def call_groq_llm(system_prompt: str, user_question: str) -> str:
                 if r.status_code == 200:
                     return r.json()["choices"][0]["message"]["content"].strip()
                 elif r.status_code == 429:
-                    print(f"[RAG] Groq Key Rate Limited (429) for model {model} — trying next model/key.")
+                    print(f"[RAG] Groq Key Rate Limited (429) for model {model} on key {api_key[:8]}... — trying next key/model.")
                     continue
                 else:
                     print(f"[RAG] Groq error ({r.status_code}) with key {api_key[:8]}...: {r.text[:150]}")
             except Exception as e:
-                print(f"[RAG] Groq connection issue with model {model}: {e}")
+                print(f"[RAG] Groq connection issue with model {model} and key {api_key[:8]}...: {e}")
                 
     return None
 
-# ── Gemini LLM Call ───────────────────────────────────────────────────────────
-def call_gemini_llm(prompt: str) -> str:
-    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-    if not api_key or not HAS_GEMINI or api_key.startswith("AIzaSyAl0"):
-        return None
-    try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content(prompt)
-        return response.text.strip()
-    except Exception as e:
-        print(f"[RAG] Gemini live API error: {e}")
-        return None
+
 
 # ── High-Fidelity Local Rule-Based Expert System Fallback ────────────────────
 def run_expert_system(question: str, kb: str, logs: list, inference: dict) -> str:
@@ -258,15 +240,14 @@ def query_analyst(question: str, logs: list, inference: dict) -> str:
         f"{formatted_logs}\n"
         "======================================\n\n"
         "INSTRUCTIONS:\n"
+        "- First and foremost, DIRECTLY ANSWER the user's specific question.\n"
         "- Base your analysis EXACTLY on the live ML values, packet logs, and the knowledge base.\n"
-        "- Provide a structured, expert analysis using these exact headers:\n"
+        "- IF the user is asking for a general threat analysis, status report, or incident summary, use these exact headers:\n"
         "  ### 📊 Real-Time Telemetry Analysis\n"
-        "  (Detail the exact current packet rate, mean inter-arrival time, duplicate ratio, and compare them against normal baselines)\n"
         "  ### 🧠 ML Model Decisions & SHAP Explainability\n"
-        "  (Explain the active classification (NORMAL, DOS_FLOOD, REPLAY_ATTACK, SLOW_RATE_ATTACK) and why the specific SHAP driver weights pushed the Random Forest model toward this prediction)\n"
         "  ### 🛡️ SOC Recommendations & Containment Actions\n"
-        "  (Give actionable recommendations: e.g. nominal monitoring, or warning about high severity, suggesting the user click 'Reset to Normal' or trigger containment via the Attacker Control panel if an attack is active)\n"
-        "- Format your answer with clean GitHub-style Markdown (use bolding, bullet points, and code styling).\n"
+        "- If the user is asking a specific or brief question, just provide a clear, concise, and direct answer without forcing the headers.\n"
+        "- Format your answer with clean GitHub-style Markdown.\n"
         "- Keep it professional, highly authoritative, crisp, and technical."
     )
 
@@ -276,13 +257,6 @@ def query_analyst(question: str, logs: list, inference: dict) -> str:
         print("[RAG] Served query using Groq Live LLM.")
         return answer
 
-    # 2. Try Gemini LLM second
-    full_prompt = f"{system_prompt}\n\nUser Question: {question}"
-    answer = call_gemini_llm(full_prompt)
-    if answer:
-        print("[RAG] Served query using Gemini Live LLM.")
-        return answer
-
-    # 3. Fallback to Expert System
+    # 2. Fallback to Expert System
     print("[RAG] Served query using High-Fidelity Local Expert System.")
     return run_expert_system(question, kb, logs, inference)

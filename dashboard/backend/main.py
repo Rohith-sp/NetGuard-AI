@@ -149,7 +149,12 @@ async def inference_loop():
         await asyncio.sleep(5)
         try:
             now = time.time()
-            window = [p for p in packet_buffer if now - p["ts"] <= 10.0]
+            try:
+                buffer_snap = list(packet_buffer)
+            except RuntimeError:
+                # MQTT thread mutated the deque while we tried to copy it. Skip this inference tick.
+                continue
+            window = [p for p in buffer_snap if now - p["ts"] <= 10.0]
 
             if len(window) < 1 or model is None:
                 if model is None: print("[ML] Model not loaded — skipping")
@@ -359,7 +364,7 @@ def on_message(client, userdata, msg):
 
 async def broadcast(msg: str):
     dead = []
-    for ws in connected_ws:
+    for ws in list(connected_ws):
         try:    await ws.send_text(msg)
         except: dead.append(ws)
     for ws in dead:
