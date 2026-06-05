@@ -13,7 +13,7 @@ import requests
 
 # ── Load DATASETS.md Knowledge Base ──────────────────────────────────────────
 DATASETS_PATH = os.path.normpath(os.path.join(
-    os.path.dirname(__file__), "..", "..", "mqtt_collector", "DATASETS.md"
+    os.path.dirname(__file__), "..", "DATASETS.md"
 ))
 
 def get_datasets_kb() -> str:
