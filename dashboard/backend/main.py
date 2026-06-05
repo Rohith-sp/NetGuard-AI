@@ -422,11 +422,21 @@ async def ws_live(ws: WebSocket):
 class ModeCommand(BaseModel):
     mode: str
 
+VALID_MODES = {"NORMAL", "DOS_FLOOD", "REPLAY_ATTACK", "SLOW_RATE_ATTACK",
+               "DATA_POISON", "TOPIC_BOMB", "EVASION_ATTACK"}
+
 @app.post("/attacker/mode")
 async def set_mode(cmd: ModeCommand):
-    mqtt_client.publish("netguard/cmd", json.dumps({"command": "SET_MODE", "mode": cmd.mode}))
-    print(f"[CMD] SET_MODE → {cmd.mode}")
-    return {"status": "ok", "mode": cmd.mode}
+    mode = cmd.mode.upper().strip()
+    if mode not in VALID_MODES:
+        return {"status": "error", "message": f"Unknown mode: {mode}"}
+    # Publish to netguard/cmd — Arduino mqttCallback parser expects this exact JSON
+    mqtt_client.publish(
+        "netguard/cmd",
+        json.dumps({"command": "SET_MODE", "mode": mode})
+    )
+    print(f"[CMD] SET_MODE → {mode} published to netguard/cmd")
+    return {"status": "ok", "mode": mode}
 
 # ── Simulation endpoint (injects synthetic packets for demo/offline mode) ──────
 # Realistic inter-arrival times per attack class:
@@ -434,11 +444,17 @@ async def set_mode(cmd: ModeCommand):
 #   DOS_FLOOD:        150–350  ms   → ~4 pkt/s    iat ~250ms   dup 0    seq+1
 #   REPLAY_ATTACK:    800–1500 ms   → ~1 pkt/s    iat ~1100ms  dup 0.8  seq 0
 #   SLOW_RATE_ATTACK: 15000–30000ms → ~0.05 pkt/s iat ~22000ms dup 0    seq+1
+#   DATA_POISON:      2000–5000 ms  → mimics NORMAL timing to evade flow AI
+#   TOPIC_BOMB:       50–100   ms   → extremely fast, many unique topics
+#   EVASION_ATTACK:   150–3500 ms   → mixed fast/slow to fool std_inter_arrival_ms
 _SIM_CFG = {
-    "NORMAL":           {"iat_lo": 2000, "iat_hi": 5000,  "n": 12, "dup": 0.0,  "seq_inc": 1},
-    "DOS_FLOOD":        {"iat_lo":  150, "iat_hi":  350,  "n": 80, "dup": 0.0,  "seq_inc": 1},
-    "REPLAY_ATTACK":    {"iat_lo":  800, "iat_hi": 1500,  "n": 20, "dup": 0.82, "seq_inc": 0},
-    "SLOW_RATE_ATTACK": {"iat_lo": 15000,"iat_hi":30000, "n":  4, "dup": 0.0,  "seq_inc": 1},
+    "NORMAL":           {"iat_lo": 2000,  "iat_hi": 5000,  "n": 12, "dup": 0.0,  "seq_inc": 1},
+    "DOS_FLOOD":        {"iat_lo":  150,  "iat_hi":  350,  "n": 80, "dup": 0.0,  "seq_inc": 1},
+    "REPLAY_ATTACK":    {"iat_lo":  800,  "iat_hi": 1500,  "n": 20, "dup": 0.82, "seq_inc": 0},
+    "SLOW_RATE_ATTACK": {"iat_lo": 15000, "iat_hi":30000, "n":  4, "dup": 0.0,  "seq_inc": 1},
+    "DATA_POISON":      {"iat_lo": 2000,  "iat_hi": 5000,  "n": 12, "dup": 0.0,  "seq_inc": 1},
+    "TOPIC_BOMB":       {"iat_lo":   50,  "iat_hi":  100,  "n": 80, "dup": 0.0,  "seq_inc": 1},
+    "EVASION_ATTACK":   {"iat_lo":  150,  "iat_hi": 3500,  "n": 30, "dup": 0.0,  "seq_inc": 1},
 }
 
 import random as _random
