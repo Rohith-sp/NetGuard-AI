@@ -4,8 +4,8 @@
 // ==========================================
 // 1. WiFi & MQTT Configuration
 // ==========================================
-const char* ssid        = "wifi-name";
-const char* password    = "wifi-password";
+const char* ssid        = "ROHITH";
+const char* password    = "Password";
 const char* mqtt_server = "broker.hivemq.com";
 const int   mqtt_port   = 1883;
 
@@ -61,6 +61,54 @@ void setup_wifi() {
   Serial.println("\nWiFi connected.");
 }
 
+void applyMode(String modeStr) {
+  AttackMode oldMode = currentMode;
+  if (modeStr == "NORMAL")            currentMode = NORMAL;
+  else if (modeStr == "DOS_FLOOD")    currentMode = DOS_FLOOD;
+  else if (modeStr == "REPLAY_ATTACK")currentMode = REPLAY_ATTACK;
+  else if (modeStr == "SLOW_RATE_ATTACK") currentMode = SLOW_RATE_ATTACK;
+  
+  if (currentMode != oldMode) {
+    if (currentMode != REPLAY_ATTACK) {
+      replayPayload = "";
+    }
+    // Force immediate packet transmission for the new mode
+    lastPublishTime = 0;
+    nextPublishDelay = 0;
+  }
+  
+  Serial.print(">> Mode set to: ");
+  Serial.println(getModeString());
+}
+
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  String msg = "";
+  for (unsigned int i = 0; i < length; i++) {
+    msg += (char)payload[i];
+  }
+  Serial.print("[MQTT Callback] Msg received: ");
+  Serial.println(msg);
+
+  // Parse command JSON robustly, ignoring spacing differences
+  if (msg.indexOf("SET_MODE") != -1) {
+    int modeIdx = msg.indexOf("\"mode\"");
+    if (modeIdx != -1) {
+      int colonIdx = msg.indexOf(":", modeIdx);
+      if (colonIdx != -1) {
+        int startIdx = msg.indexOf("\"", colonIdx);
+        if (startIdx != -1) {
+          startIdx += 1; // skip opening quote
+          int endIdx = msg.indexOf("\"", startIdx);
+          if (endIdx != -1) {
+            String modeStr = msg.substring(startIdx, endIdx);
+            applyMode(modeStr);
+          }
+        }
+      }
+    }
+  }
+}
+
 void reconnect() {
   while (!client.connected()) {
     String clientId = "ESP32-Attacker-" + String(random(0xffff), HEX);
@@ -68,6 +116,7 @@ void reconnect() {
     
     if (client.connect(clientId.c_str())) {
       Serial.println("Connected!");
+      client.subscribe("netguard/cmd"); // Subscribe to command topic
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
@@ -88,6 +137,7 @@ void setup() {
   
   setup_wifi();
   client.setServer(mqtt_server, mqtt_port);
+  client.setCallback(mqttCallback); // Set callback
   
   Serial.println("\n==============================================");
   Serial.println(">> ATTACKER NODE READY — Press button to cycle modes.");

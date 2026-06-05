@@ -5,6 +5,7 @@ import type { NodeData, MLState } from "../hooks/useLiveData";
 interface Props {
   n1: NodeData; n2: NodeData; n3: NodeData;
   ml: MLState; wsReady: boolean;
+  triggerAttack?: (mode: string) => Promise<void>;
 }
 
 // ── Fix 2: expanded viewBox for breathing room ─────────────────────────────
@@ -77,7 +78,7 @@ function trustColor(trust: number, online: boolean) {
   return "var(--green)";
 }
 
-export default function TopologyTab({ n1, n2, n3, ml: _realMl, wsReady }: Props) {
+export default function TopologyTab({ n1, n2, n3, ml: _realMl, wsReady, triggerAttack }: Props) {
   const [simKey, setSimKey] = useState<SimKey>("NORMAL");
   const simCfg   = SIM_MODES.find(m => m.key === simKey)!;
   const isAttack = simCfg.isAttack;
@@ -318,7 +319,10 @@ export default function TopologyTab({ n1, n2, n3, ml: _realMl, wsReady }: Props)
               {SIM_MODES.map((m) => (
                 <button key={m.key}
                   className={`topo-sim-btn ${m.cls}${simKey === m.key ? " active" : ""}`}
-                  onClick={() => setSimKey(m.key)}
+                  onClick={() => {
+                    setSimKey(m.key);
+                    triggerAttack?.(m.key);
+                  }}
                   title={m.desc}
                 >
                   {m.label}

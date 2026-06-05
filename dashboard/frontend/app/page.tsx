@@ -22,7 +22,7 @@ function renderMarkdown(text: string) {
 }
 
 export default function Page() {
-  const { nodes, packets, alerts, temporal, sensorTemporal, ml, incident, totalPkts, wsReady, simulate } = useLiveData();
+  const { nodes, packets, alerts, temporal, sensorTemporal, ml, incident, totalPkts, wsReady, triggerAttack, simulate } = useLiveData();
   const [tab, setTab] = useState<"overview" | "analytics" | "topology" | "chat">("analytics");
   const [demoMode, setDemoMode] = useState("NORMAL");
   const [demoActive, setDemoActive] = useState(false);
@@ -205,6 +205,7 @@ export default function Page() {
             <TopologyTab
               n1={nodes.esp32_1} n2={nodes.esp32_2} n3={nodes.esp32_3}
               ml={ml} wsReady={wsReady}
+              triggerAttack={triggerAttack}
             />
           </div>
         )}
