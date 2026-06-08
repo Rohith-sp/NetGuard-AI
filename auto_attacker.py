@@ -11,6 +11,13 @@ TOPIC = "netguard/cmd"
 # List of 6 advanced attack modes
 ATTACKS = ["DOS_FLOOD", "REPLAY_ATTACK", "SLOW_RATE_ATTACK", "DATA_POISON", "TOPIC_BOMB", "EVASION_ATTACK"]
 
+def get_random_attack():
+    # Rare attacks (Slow Rate, Poison, Replay, Evasion) get 85% total chance.
+    # High-packet flood attacks (DoS, Topic Bomb) get 15% total chance to avoid bloating the logs.
+    choices = ["SLOW_RATE_ATTACK", "DATA_POISON", "REPLAY_ATTACK", "EVASION_ATTACK", "DOS_FLOOD", "TOPIC_BOMB"]
+    weights = [0.25, 0.25, 0.20, 0.15, 0.10, 0.05]
+    return random.choices(choices, weights=weights, k=1)[0]
+
 def on_connect(client, userdata, flags, rc, *args):
     if rc == 0:
         print("Connected to MQTT Broker successfully!")
@@ -52,24 +59,28 @@ try:
     time.sleep(initial_normal_dur)
 
     while True:
-        # 2. Attack Phase (Unpredictable, short-lived bursts to prevent packet overloading)
-        active_attack = random.choice(ATTACKS)
+        # 2. Attack Phase (Weighted selection favoring rare classes)
+        active_attack = get_random_attack()
         
-        # Decide attack duration (15-25s is ideal to populate sliding windows without drowning normal data)
-        roll = random.random()
-        if roll < 0.30:
-            attack_dur = random.randint(10, 15)  # Quick spike
-            intensity = "SHORT BURST"
-        else:
-            attack_dur = random.randint(15, 25)  # Standard window capture
-            intensity = "STANDARD"
+        # Adjust duration ranges to match packet output rates
+        if active_attack == "SLOW_RATE_ATTACK":
+            attack_dur = random.randint(60, 95)  # Extended duration for sparse packet logs
+            intensity = "EXTENDED LOW-RATE"
+        elif active_attack == "DATA_POISON":
+            attack_dur = random.randint(45, 75)  # Medium-long duration for DHT spoofing
+            intensity = "EXTENDED POISON"
+        elif active_attack in ["REPLAY_ATTACK", "EVASION_ATTACK"]:
+            attack_dur = random.randint(25, 45)  # Standard capture
+            intensity = "STANDARD TIMING"
+        else: # DOS_FLOOD or TOPIC_BOMB
+            attack_dur = random.randint(8, 12)   # Short bursts to prevent flood congestion
+            intensity = "SHORT HIGH-RATE BURST"
             
         print(f"\n[!] [ATTACK] Launching {intensity} {active_attack} for {attack_dur} seconds...")
         send_mode(active_attack)
         time.sleep(attack_dur)
 
-        # 3. Transition back to long, dominant NORMAL recovery windows (unpredictably spaced)
-        # Normal durations are set to 80-150 seconds to keep the process reasonably fast but clean
+        # 3. Transition back to NORMAL recovery (unpredictably spaced)
         recovery_dur = random.randint(80, 150) 
         
         print(f"\n[*] [NORMAL] Resetting to dominant NORMAL baseline for {recovery_dur} seconds...")
