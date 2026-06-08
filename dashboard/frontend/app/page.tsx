@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { useLiveData } from "./hooks/useLiveData";
 import { AnomalyGraph, PktRateGraph } from "./components/Graphs";
 import { KpiRow, NodeRow, MLPanel, AlertLog, PacketFeed, HeatmapPanel } from "./components/Panels";
-import TopologyTab from "./components/TopologyTab";
+import TopologyTab, { type SimKey } from "./components/TopologyTab";
 import AnalyticsTab from "./components/AnalyticsTab";
 import IncidentReport from "./components/IncidentReport";
 import GlobalImportanceChart from "./components/GlobalImportanceChart";
@@ -24,6 +24,7 @@ function renderMarkdown(text: string) {
 export default function Page() {
   const { nodes, packets, alerts, temporal, sensorTemporal, ml, incident, totalPkts, wsReady, triggerAttack, simulate } = useLiveData();
   const [tab, setTab] = useState<"overview" | "analytics" | "topology" | "chat">("analytics");
+  const [simKey, setSimKey] = useState<SimKey>("NORMAL");
   const [demoMode, setDemoMode] = useState("NORMAL");
   const [demoActive, setDemoActive] = useState(false);
   const [clock, setClock]         = useState("—");
@@ -108,9 +109,16 @@ export default function Page() {
 
       <main className="main">
         <div className="page-title-row">
-          <div>
-            <div className="page-title">{tab === "analytics" ? "Live Sensor Analytics" : tab === "overview" ? "Network Overview" : tab === "topology" ? "Network Topology" : "AI Security Analyst"}</div>
-            <div className="page-subtitle">{tab === "analytics" ? "Real-time temperature, humidity & light readings from your IoT nodes" : "Semester IV · 3 nodes monitored"}</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+            <div>
+              <div className="page-title">{tab === "analytics" ? "Live Sensor Analytics" : tab === "overview" ? "Network Overview" : tab === "topology" ? "Network Topology" : "AI Security Analyst"}</div>
+              <div className="page-subtitle">{tab === "analytics" ? "Real-time temperature, humidity & light readings from your IoT nodes" : "Semester IV · 3 nodes monitored"}</div>
+            </div>
+            {simKey !== "NORMAL" && (
+              <span className="demo-active-pill" style={{ background: "var(--red-bg)", color: "var(--red)", borderColor: "var(--red)", fontSize: "11px", padding: "4px 10px" }}>
+                ⚠ {simKey.replace(/_/g, " ")} ACTIVE
+              </span>
+            )}
           </div>
         </div>
 
@@ -206,6 +214,8 @@ export default function Page() {
               n1={nodes.esp32_1} n2={nodes.esp32_2} n3={nodes.esp32_3}
               ml={ml} wsReady={wsReady}
               triggerAttack={triggerAttack}
+              simKey={simKey}
+              setSimKey={setSimKey}
             />
           </div>
         )}

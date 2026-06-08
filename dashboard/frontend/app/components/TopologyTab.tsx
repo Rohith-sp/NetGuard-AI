@@ -2,10 +2,14 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import type { NodeData, MLState } from "../hooks/useLiveData";
 
+export type SimKey = "NORMAL" | "DOS_FLOOD" | "REPLAY_ATTACK" | "SLOW_RATE_ATTACK" | "DATA_POISON" | "TOPIC_BOMB" | "EVASION_ATTACK";
+
 interface Props {
   n1: NodeData; n2: NodeData; n3: NodeData;
   ml: MLState; wsReady: boolean;
   triggerAttack?: (mode: string) => Promise<void>;
+  simKey: SimKey;
+  setSimKey: (k: SimKey) => void;
 }
 
 // ── Fix 2: expanded viewBox for breathing room ─────────────────────────────
@@ -33,7 +37,7 @@ const EDGES = [
 const EDGE_DURS = [1.8, 2.2, 2.0, 2.4, 1.9, 1.6, 1.4];
 
 // ── Simulation modes — local only, never touches backend ─────────────────────
-type SimKey = "NORMAL" | "DOS_FLOOD" | "REPLAY_ATTACK" | "SLOW_RATE_ATTACK" | "DATA_POISON" | "TOPIC_BOMB" | "EVASION_ATTACK";
+// (SimKey is now exported above)
 
 const SIM_MODES: {
   key: SimKey; label: string; cls: string; desc: string;
@@ -110,8 +114,7 @@ const ANIM_COLOR: Record<string, string> = {
   evasion: "#facc15",   // yellow — camouflaged evasion
 };
 
-export default function TopologyTab({ n1, n2, n3, ml: _realMl, wsReady, triggerAttack }: Props) {
-  const [simKey, setSimKey] = useState<SimKey>("NORMAL");
+export default function TopologyTab({ n1, n2, n3, ml: _realMl, wsReady, triggerAttack, simKey, setSimKey }: Props) {
   const simCfg   = SIM_MODES.find(m => m.key === simKey)!;
   const isAttack = simCfg.isAttack;
   const pred     = simCfg.pred;
