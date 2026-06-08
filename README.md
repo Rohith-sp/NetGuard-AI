@@ -18,7 +18,7 @@
 
 ## Overview
 
-NetGuard AI is a complete, end-to-end IoT intrusion detection system built on real ESP32 hardware. It monitors network traffic from three physical nodes in real time, uses a trained Random Forest classifier to detect four categories of cyberattack, explains every decision using SHAP values, and presents everything in a live Next.js SOC dashboard.
+NetGuard AI is a complete, end-to-end IoT intrusion detection system built on real ESP32 hardware. It monitors network traffic from three physical nodes in real time, uses a trained Random Forest classifier to detect cyberattacks (supporting six distinct attack modes in hardware), explains every decision using SHAP values, and presents everything in a live Next.js SOC dashboard.
 
 The system is fully explainable — every classification comes with a breakdown of which network features drove the decision, an auto-generated natural language incident report, and an AI chatbot that can answer questions about the current network state in plain English.
 
@@ -32,11 +32,11 @@ The system is fully explainable — every classification comes with a breakdown 
 │                                                                             │
 │  ESP32_1 (DHT11)          ESP32_2 (LDR)          ESP32_3 (Attacker)        │
 │  • Temperature sensor     • Light sensor          • Attack simulator        │
-│  • Humidity sensor        • Publishes LUX         • 4 attack modes          │
-│  • Alert subscriber       • Publishes to          • Button-controlled       │
-│  • LED + Buzzer on alert    netguard/device2      • Publishes to            │
-│  • Publishes to                                     netguard/attacker       │
-│    netguard/device1                                                         │
+│  • Alert subscriber       • Publishes LUX         • 7 attack/sim modes      │
+│  • LED + Buzzer on alert    netguard/device2      • I2C 16x2 LCD Display    │
+│  • Publishes to                                   • Button/MQTT controlled  │
+│    netguard/device1                               • Publishes to            │
+│                                                     netguard/attacker       │
 └──────────────┬───────────────────┬───────────────────┬──────────────────────┘
                │                   │                   │
                └───────────────────┴───────────────────┘
@@ -112,14 +112,17 @@ Ambient light sensor using an LDR (Light Dependent Resistor). Publishes light in
 
 ### ESP32_3 — Attacker Node (`arduino_codes/netguard-attacker/`)
 
-A standalone ESP32 that simulates four distinct cyberattack patterns. The active attack mode is cycled using a physical push button on the board. Publishes to `netguard/attacker`.
+A standalone ESP32 that simulates six distinct cyberattack patterns (plus a normal mode). The active mode can be cycled using a physical push button on the board or triggered remotely from the dashboard via MQTT. It also outputs status messages and attack modes on an attached **16x2 I2C LCD screen** (SDA ➔ GPIO 21, SCL ➔ GPIO 22).
 
-| Mode | Button Press | Behavior | IAT | Packet Rate |
-|---|---|---|---|---|
-| `NORMAL` | 0 presses | Mimics legitimate device | 2–5 seconds | ~0.3 pkt/s |
-| `DOS_FLOOD` | 1 press | Rapid burst flooding | 150–350 ms | ~4 pkt/s |
-| `REPLAY_ATTACK` | 2 presses | Frozen sequence numbers repeated | 800–1500 ms | ~1 pkt/s |
-| `SLOW_RATE_ATTACK` | 3 presses | Ghost packets to evade detection | 15–30 seconds | ~0.05 pkt/s |
+| Mode | Button Cycle | Behavior | IAT | Packet Rate | Target Topic |
+|---|---|---|---|---|---|
+| `NORMAL` | Mode 1 | Mimics legitimate sensor | 2–5 seconds | ~0.3 pkt/s | `netguard/attacker` |
+| `DOS_FLOOD` | Mode 2 | Rapid burst flooding | 150–350 ms | ~4 pkt/s | `netguard/attacker` |
+| `REPLAY_ATTACK` | Mode 3 | Frozen sequence numbers replayed | 800–1500 ms | ~1 pkt/s | `netguard/attacker` |
+| `SLOW_RATE_ATTACK` | Mode 4 | Ghost packets to evade detection | 15–30 seconds | ~0.05 pkt/s | `netguard/attacker` |
+| `DATA_POISON` | Mode 5 | Spoofs DHT node with poisoned data | 2–5 seconds | ~0.3 pkt/s | `netguard/device1` |
+| `TOPIC_BOMB` | Mode 6 | Floods broker with random topics | 50–100 ms | ~15 pkt/s | `netguard/junk_X` |
+| `EVASION_ATTACK` | Mode 7 | Evasion flood with randomized delays | Staggered | ~4 pkt/s | `netguard/attacker` |
 
 ---
 
@@ -199,6 +202,8 @@ python augment_and_train.py
 | DOS_FLOOD | 100% | 83% | 91% | High packet_rate, low IAT |
 | REPLAY_ATTACK | 94% | 94% | 94% | High duplicate_ratio, frozen seq |
 | SLOW_RATE_ATTACK | 91% | 100% | 96% | Very low rate, huge IAT |
+
+*Note: The Attacker Node has been upgraded to support three additional advanced attacks (Data Poisoning, Topic Bombing, and Adversarial Evasion), allowing collection of new datasets and model expansion to 7 classes.*
 
 **Top model-learned features (global importance):**
 1. `duplicate_ratio` — Primary indicator for Replay Attacks (frozen seq numbers)
@@ -404,6 +409,8 @@ An interactive SVG network map showing all nodes connected to the MQTT broker.
 - **Color coding** — ESP32_3 turns red when an attack is detected
 - **Side panel** — Click any node to see its live telemetry, current classification, and top SHAP drivers
 - **Connection lines** show latency and packet flow direction
+- **Tab State Persistence** — Attack simulation selection is lifted to the page-level (`page.tsx`) so that changing tabs does not reset the attack animations.
+- **Global Warning Badge** — A red status pill `⚠ <ATTACK> ACTIVE` is displayed in the page title row on all tabs when an attack is active.
 
 ---
 
