@@ -1,7 +1,7 @@
 import paho.mqtt.client as mqtt
 import sys
 
-def on_connect(client, userdata, flags, rc):
+def on_connect(client, userdata, flags, rc, *args):
     if rc == 0:
         print("Connected to broker.hivemq.com successfully!")
         print("Subscribed to 'netguard/#' topic tree.")
