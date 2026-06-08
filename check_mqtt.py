@@ -1,21 +1,37 @@
 import paho.mqtt.client as mqtt
-import time
+import sys
 
 def on_connect(client, userdata, flags, rc):
-    print("Connected to broker.hivemq.com! Subscribing to netguard/# ...")
-    client.subscribe("netguard/#")
+    if rc == 0:
+        print("Connected to broker.hivemq.com successfully!")
+        print("Subscribed to 'netguard/#' topic tree.")
+        print("Listening for MQTT packets. Press [Ctrl+C] to stop...")
+        print("="*80)
+        client.subscribe("netguard/#")
+    else:
+        print(f"Connection failed with code {rc}")
+        sys.exit(1)
 
 def on_message(client, userdata, msg):
-    print(f"Received message on [{msg.topic}]: {msg.payload.decode('utf-8')}")
+    print(f"[{msg.topic}]: {msg.payload.decode('utf-8', errors='ignore')}")
 
-client = mqtt.Client()
+# Initialize client using latest API version recommendation
+try:
+    # Try paho-mqtt v2 client initialization
+    client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
+except AttributeError:
+    # Fallback for paho-mqtt v1
+    client = mqtt.Client()
+
 client.on_connect = on_connect
 client.on_message = on_message
 
-client.connect("broker.hivemq.com", 1883, 60)
-
-client.loop_start()
-print("Listening for MQTT packets for 15 seconds. Please trigger traffic on your ESP32 nodes...")
-time.sleep(15)
-client.loop_stop()
-print("Done listening.")
+try:
+    client.connect("broker.hivemq.com", 1883, 60)
+    client.loop_forever()
+except KeyboardInterrupt:
+    print("\nStopping listener...")
+    client.disconnect()
+    print("Disconnected safely.")
+except Exception as e:
+    print(f"Error: {e}")
