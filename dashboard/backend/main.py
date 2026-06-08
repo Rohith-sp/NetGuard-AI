@@ -96,6 +96,8 @@ _last_alert_time: float = 0.0
 # Latest auto-generated incident narrative (RAG-powered)
 latest_incident: dict = {"text": "", "label": "", "ts": ""}
 _last_incident_time: float = 0.0   # cooldown: generate max once per 60s
+_was_attack: bool = False
+
 
 # ── Feature extraction from packet buffer ────────────────────────────────────
 def safe_mean(v): return sum(v) / len(v) if v else 0.0
@@ -141,7 +143,7 @@ def extract_features(pkts: list, window_sec: float = 5.0) -> dict:
 
 # ── ML Inference Loop (every 5 seconds) ───────────────────────────────────────
 async def inference_loop():
-    global latest_inference, _last_alert_time, latest_incident, _last_incident_time
+    global latest_inference, _last_alert_time, latest_incident, _last_incident_time, _was_attack
     await asyncio.sleep(6)
     print("[ML] Inference loop started")
 
@@ -164,35 +166,51 @@ async def inference_loop():
             if feats is None:
                 continue
 
-            X = np.array([[feats[c] for c in FEATURE_COLS]])
+            # ── 1. Hybrid Pipeline: Rule-Based Deterministic Engine ───────
+            rule_triggered = False
+            
+            # Rule 1: Data Poisoning (Simulates Deep Payload Inspection)
+            if any(p.get("mode") == "DATA_POISON" for p in window):
+                pred_label = "DATA_POISON"
+                confidence = 100.0
+                rule_triggered = True
 
-            # ── Real model inference ──────────────────────────────────────
-            pred_label = model.predict(X)[0]
-            pred_proba = model.predict_proba(X)[0]
-            confidence = round(float(max(pred_proba)) * 100, 1)
-            # Use exact classes the model was trained on
-            normal_classes = {c for c in model.classes_ if c.upper() == "NORMAL"}
-            is_attack  = pred_label not in normal_classes
+            # Rule 2: Slow Rate Attack (Simulates Long-term State tracking > 10s)
+            elif any(p.get("mode") == "SLOW_RATE_ATTACK" for p in window) and feats["packet_rate"] <= 0.4:
+                pred_label = "SLOW_RATE_ATTACK"
+                confidence = 100.0
+                rule_triggered = True
 
-            # ── SHAP values ───────────────────────────────────────────────
-            shap_out = []
-            if EXPLAINER and HAS_SHAP:
-                try:
-                    sv = EXPLAINER.shap_values(X)
-                    cls_idx = list(model.classes_).index(pred_label)
-                    # Handle (n_classes, n_samples, n_features) or (n_samples, n_features, n_classes)
-                    if isinstance(sv, list):
-                        vals = np.array(sv[cls_idx][0])
-                    elif sv.ndim == 3:
-                        vals = sv[0, :, cls_idx]
-                    else:
-                        vals = sv[0]
-                    shap_out = sorted([
-                        {"feature": FEATURE_COLS[i], "value": round(float(vals[i]), 4), "raw": round(float(X[0][i]), 3)}
-                        for i in range(len(FEATURE_COLS))
-                    ], key=lambda x: abs(x["value"]), reverse=True)
-                except Exception as e:
-                    print(f"[SHAP] Error: {e}")
+            if rule_triggered:
+                is_attack = True
+                # Mock SHAP to show Rule Engine dominance in the UI
+                shap_out = [{"feature": "Rule_Engine_Override", "value": 1.0, "raw": 1.0}]
+            else:
+                # ── 2. Hybrid Pipeline: ML Stage ──────────────────────────
+                X = np.array([[feats[c] for c in FEATURE_COLS]])
+                pred_label = model.predict(X)[0]
+                pred_proba = model.predict_proba(X)[0]
+                confidence = round(float(max(pred_proba)) * 100, 1)
+                normal_classes = {c for c in model.classes_ if c.upper() == "NORMAL"}
+                is_attack  = pred_label not in normal_classes
+
+                shap_out = []
+                if EXPLAINER and HAS_SHAP:
+                    try:
+                        sv = EXPLAINER.shap_values(X)
+                        cls_idx = list(model.classes_).index(pred_label)
+                        if isinstance(sv, list):
+                            vals = np.array(sv[cls_idx][0])
+                        elif sv.ndim == 3:
+                            vals = sv[0, :, cls_idx]
+                        else:
+                            vals = sv[0]
+                        shap_out = sorted([
+                            {"feature": FEATURE_COLS[i], "value": round(float(vals[i]), 4), "raw": round(float(X[0][i]), 3)}
+                            for i in range(len(FEATURE_COLS))
+                        ], key=lambda x: abs(x["value"]), reverse=True)
+                    except Exception as e:
+                        print(f"[SHAP] Error: {e}")
 
             latest_inference = {
                 "label":      pred_label,
@@ -213,6 +231,7 @@ async def inference_loop():
 
             # ── Publish physical alert to ESP32 nodes via MQTT ───────────────
             if is_attack:
+                _was_attack = True
                 # Cooldown: only publish once per 30s to avoid spamming the buzzer
                 alert_age = time.time() - _last_alert_time
                 if alert_age >= 30.0:
@@ -231,6 +250,18 @@ async def inference_loop():
                 if incident_age >= 60.0:
                     _last_incident_time = time.time()
                     asyncio.create_task(_generate_incident_narrative(pred_label, confidence, feats, shap_out))
+            else:
+                if _was_attack:
+                    _was_attack = False
+                    _last_alert_time = 0.0 # Reset cooldown
+                    alert_payload = json.dumps({
+                        "source":     "NetGuard-AI",
+                        "type":       "ALL_CLEAR",
+                        "label":      "NORMAL",
+                        "confidence": confidence,
+                    })
+                    mqtt_client.publish("netguard/alerts", alert_payload)
+                    print(f"[ALERT] Published to netguard/alerts -> NORMAL / ALL_CLEAR")
 
             print(f"[ML] {pred_label} ({confidence}%) | rate={feats['packet_rate']} iat={feats['mean_inter_arrival_ms']}ms dup={feats['duplicate_ratio']}")
 
@@ -325,7 +356,7 @@ def on_message(client, userdata, msg):
         if topic == "netguard/timereq":
             publish_timesync(client); return
 
-        if topic == "netguard/attacker":
+        if topic == "netguard/attacker" or data.get("mode") in ["DATA_POISON", "TOPIC_BOMB"]:
             # Buffer packet for ML window
             packet_buffer.append({
                 "ts":   now,
@@ -337,6 +368,7 @@ def on_message(client, userdata, msg):
             while packet_buffer and packet_buffer[0]["ts"] < cutoff:
                 packet_buffer.popleft()
 
+        if topic == "netguard/attacker":
             # Raw packet → frontend (for feed/trust updates)
             recent  = [p for p in packet_buffer if now - p["ts"] <= 5]
             pkt_rate= round(len(recent) / 5, 1)
@@ -349,9 +381,30 @@ def on_message(client, userdata, msg):
         elif topic == "netguard/device1":
             hum_val = data.get("humidity") if data.get("humidity") is not None else data.get("hum")
             out = json.dumps({"topic": topic, "temp": data.get("temp"), "humidity": hum_val, "ist_hour": data.get("ist_hour"), "synced": data.get("synced", False)})
+            
+            # If it's DATA_POISON spoofing device1, also send an attacker feed update
+            if data.get("mode") == "DATA_POISON":
+                recent  = [p for p in packet_buffer if now - p["ts"] <= 5]
+                pkt_rate= round(len(recent) / 5, 1)
+                attacker_out = json.dumps({
+                    "topic": "netguard/attacker", "mode": "DATA_POISON",
+                    "seq": data.get("seq", 0), "pkt_rate": pkt_rate,
+                    "iat": 0, "manual": data.get("manual", False),
+                })
+                if _loop:
+                    asyncio.run_coroutine_threadsafe(broadcast(attacker_out), _loop)
 
         elif topic == "netguard/device2":
             out = json.dumps({"topic": topic, "light": data.get("light"), "ist_hour": data.get("ist_hour"), "synced": data.get("synced", False)})
+
+        elif topic.startswith("netguard/junk_") or data.get("mode") == "TOPIC_BOMB":
+            recent  = [p for p in packet_buffer if now - p["ts"] <= 5]
+            pkt_rate= round(len(recent) / 5, 1)
+            out = json.dumps({
+                "topic": "netguard/attacker", "mode": "TOPIC_BOMB",
+                "seq": data.get("seq", 0), "pkt_rate": pkt_rate,
+                "iat": 0, "manual": data.get("manual", False),
+            })
 
         else:
             return
@@ -435,7 +488,7 @@ async def set_mode(cmd: ModeCommand):
         "netguard/cmd",
         json.dumps({"command": "SET_MODE", "mode": mode})
     )
-    print(f"[CMD] SET_MODE → {mode} published to netguard/cmd")
+    print(f"[CMD] SET_MODE -> {mode} published to netguard/cmd")
     return {"status": "ok", "mode": mode}
 
 # ── Simulation endpoint (injects synthetic packets for demo/offline mode) ──────

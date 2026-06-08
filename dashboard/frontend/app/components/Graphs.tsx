@@ -17,7 +17,7 @@ export function AnomalyGraph({ data }: { data: TemporalPoint[] }) {
 
     const pts = vals.map((v, i) => {
       const x = PAD + (i / (vals.length - 1)) * (W - PAD);
-      const y = H - (v / 100) * (H - 10);
+      const y = (H - 2) - (v / 100) * (H - 12); // Keep line stroke within viewBox
       return [x, y] as [number, number];
     });
 
@@ -32,7 +32,7 @@ export function AnomalyGraph({ data }: { data: TemporalPoint[] }) {
 
   return (
     <div className="anomaly-graph-wrap">
-      <svg ref={svgRef} id="anomaly-svg" viewBox="0 0 800 140" preserveAspectRatio="none">
+      <svg ref={svgRef} id="anomaly-svg" width="100%" height="100%" viewBox="0 0 800 140" preserveAspectRatio="none">
         <defs>
           <linearGradient id="area-grad-green" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#059669" stopOpacity="0.18"/>
@@ -67,7 +67,7 @@ export function PktRateGraph({ data }: { data: TemporalPoint[] }) {
     function makePts(vals: number[]) {
       return vals.map((v, i) => {
         const x = PAD + (i / (vals.length-1)) * (W-PAD);
-        const y = H - (v / maxR) * (H-8);
+        const y = (H - 2) - (v / maxR) * (H - 10); // Prevent bottom clip
         return `${i===0?"M":"L"}${x.toFixed(1)},${y.toFixed(1)}`;
       }).join(" ");
     }
@@ -75,14 +75,14 @@ export function PktRateGraph({ data }: { data: TemporalPoint[] }) {
     const l1 = svgRef.current.querySelector("#pkt-line1") as SVGPolylineElement|null;
     const l2 = svgRef.current.querySelector("#pkt-line2") as SVGPolylineElement|null;
     const l3 = svgRef.current.querySelector("#pkt-line3") as SVGPolylineElement|null;
-    if (l1) l1.setAttribute("points", data.map((d,i)=>{ const x=PAD+(i/(data.length-1))*(W-PAD); const y=H-(d.r1/maxR)*(H-8); return `${x},${y}`; }).join(" "));
-    if (l2) l2.setAttribute("points", data.map((d,i)=>{ const x=PAD+(i/(data.length-1))*(W-PAD); const y=H-(d.r2/maxR)*(H-8); return `${x},${y}`; }).join(" "));
-    if (l3) l3.setAttribute("points", data.map((d,i)=>{ const x=PAD+(i/(data.length-1))*(W-PAD); const y=H-(d.r3/maxR)*(H-8); return `${x},${y}`; }).join(" "));
+    if (l1) l1.setAttribute("points", data.map((d,i)=>{ const x=PAD+(i/(data.length-1))*(W-PAD); const y=(H-2)-(d.r1/maxR)*(H-10); return `${x},${y}`; }).join(" "));
+    if (l2) l2.setAttribute("points", data.map((d,i)=>{ const x=PAD+(i/(data.length-1))*(W-PAD); const y=(H-2)-(d.r2/maxR)*(H-10); return `${x},${y}`; }).join(" "));
+    if (l3) l3.setAttribute("points", data.map((d,i)=>{ const x=PAD+(i/(data.length-1))*(W-PAD); const y=(H-2)-(d.r3/maxR)*(H-10); return `${x},${y}`; }).join(" "));
   }, [data]);
 
   return (
     <div className="pktrate-wrap">
-      <svg ref={svgRef} id="pktrate-svg" viewBox="0 0 800 80" preserveAspectRatio="none">
+      <svg ref={svgRef} id="pktrate-svg" width="100%" height="100%" viewBox="0 0 800 80" preserveAspectRatio="none">
         <text x="2" y="10" fontFamily="JetBrains Mono" fontSize="9" fill="#8a9e86">Max</text>
         <text x="2" y="78" fontFamily="JetBrains Mono" fontSize="9" fill="#8a9e86">0</text>
         <line x1="28" y1="75" x2="800" y2="75" stroke="#e2e6e0" strokeWidth="1"/>

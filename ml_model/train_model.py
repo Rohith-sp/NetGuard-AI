@@ -13,7 +13,12 @@ from sklearn.metrics import classification_report, accuracy_score
 import joblib
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-CSV_PATH   = r"C:\IOT EL\NetGuard-AI\real_time_collector\collected_datasets\telemetry_session_20260602_234537.csv"
+import glob
+DATA_DIR   = r"C:\IOT EL\NetGuard-AI\real_time_collector\collected_datasets"
+list_of_files = glob.glob(os.path.join(DATA_DIR, "*.csv"))
+if not list_of_files:
+    raise FileNotFoundError("No CSV files found in " + DATA_DIR)
+CSV_PATH = max(list_of_files, key=os.path.getctime)
 MODEL_OUT  = r"C:\IOT EL\NetGuard-AI\ml_model\netguard_model.pkl"
 
 # ── Feature engineering — mirrors backend extract_features() exactly ──────────
@@ -25,12 +30,12 @@ def build_features_from_csv(df: pd.DataFrame, window_sec: float = 10.0) -> pd.Da
     df = df.copy()
     df["ts"] = pd.to_datetime(df["timestamp_utc"]).astype("int64") / 1e9  # unix seconds
 
-    # Only use attacker node — backend does inference solely on netguard/attacker
-    atk = df[df["topic"] == "netguard/attacker"].copy()
+    # Only use attacker node or explicitly labeled attack packets that might spoof/broadcast
+    atk = df[(df["topic"] == "netguard/attacker") | (df["label"] == "DATA_POISON") | (df["label"] == "TOPIC_BOMB")].copy()
     atk = atk.sort_values("ts").reset_index(drop=True)
 
     rows = []
-    step = 5.0  # stride (seconds)
+    step = 1.0  # stride (seconds)
     t_min = atk["ts"].min()
     t_max = atk["ts"].max()
     t = t_min + window_sec
@@ -89,8 +94,7 @@ def main():
     df = pd.read_csv(CSV_PATH)
     print(f"    Total raw packets: {len(df)}")
 
-    # 2. Fix labels: only attacker node should have attack labels
-    df.loc[df["device"] != "esp32_3", "label"] = "NORMAL"
+    # 2. (Removed label filtering to preserve ALL attack classes based on ground truth)
 
     # 3. Build windowed feature matrix
     print("[*] Building 10-second windowed feature vectors…")

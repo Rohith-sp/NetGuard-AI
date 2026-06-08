@@ -20,6 +20,15 @@
   --amber-mid: #fde68a;
   --blue:      #2563eb;
   --blue-bg:   #eff6ff;
+  --purple:    #7c3aed;
+  --purple-bg: #f5f3ff;
+  --purple-mid:#c4b5fd;
+  --pink:      #db2777;
+  --pink-bg:   #fdf2f8;
+  --pink-mid:  #fbcfe8;
+  --cyan:      #0891b2;
+  --cyan-bg:   #ecfeff;
+  --cyan-mid:  #a5f3fc;
   --mono:      'JetBrains Mono', monospace;
   --sans:      'DM Sans', sans-serif;
   --radius:    6px;
@@ -221,6 +230,9 @@ body {
 .feed-label.dos     { background: var(--red-bg); color: var(--red); }
 .feed-label.replay  { background: var(--amber-bg); color: var(--amber); }
 .feed-label.slow    { background: var(--blue-bg); color: var(--blue); }
+.feed-label.poison  { background: var(--purple-bg); color: var(--purple); }
+.feed-label.bomb    { background: var(--pink-bg); color: var(--pink); }
+.feed-label.evasion { background: var(--cyan-bg); color: var(--cyan); }
 .feed-label.normal  { background: var(--surface2); color: var(--text-3); border: 1px solid var(--border); }
 .feed-device { color: var(--text-2); font-size: 10.5px; }
 .feed-iat { color: var(--text-3); text-align: right; }
@@ -299,6 +311,9 @@ body {
 .atk-mode-card.selected-dos    { border-color: var(--red); background: var(--red-bg); }
 .atk-mode-card.selected-replay { border-color: var(--amber); background: var(--amber-bg); }
 .atk-mode-card.selected-slow   { border-color: var(--blue); background: var(--blue-bg); }
+.atk-mode-card.selected-poison { border-color: var(--purple); background: var(--purple-bg); }
+.atk-mode-card.selected-bomb   { border-color: var(--pink); background: var(--pink-bg); }
+.atk-mode-card.selected-evasion{ border-color: var(--cyan); background: var(--cyan-bg); }
 .atk-mode-name { font-family: var(--mono); font-size: 12px; font-weight: 500; margin-bottom: 4px; }
 .atk-mode-desc { font-size: 11px; color: var(--text-3); line-height: 1.4; }
 .atk-action-row { display: flex; gap: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
@@ -455,6 +470,9 @@ body {
 .topo-sim-btn.dos.active     { background: var(--red-bg);   color: var(--red);   border-color: var(--red); }
 .topo-sim-btn.replay.active  { background: var(--amber-bg); color: var(--amber); border-color: var(--amber); }
 .topo-sim-btn.slow.active    { background: var(--blue-bg);  color: var(--blue);  border-color: var(--blue); }
+.topo-sim-btn.poison.active  { background: var(--purple-bg); color: var(--purple); border-color: var(--purple); }
+.topo-sim-btn.bomb.active    { background: var(--pink-bg);   color: var(--pink);   border-color: var(--pink); }
+.topo-sim-btn.evasion.active { background: var(--cyan-bg);   color: var(--cyan);   border-color: var(--cyan); }
 
 .topo-sim-desc    { font-size: 10px; color: var(--text-3); line-height: 1.45; }
 /* Fix 8: 11px, tertiary color, not italic */

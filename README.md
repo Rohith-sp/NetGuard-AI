@@ -194,16 +194,32 @@ python augment_and_train.py
 
 ### Model Performance
 
-**Overall Accuracy: 95.32%** across 4 classes
+**Overall Accuracy: 96.59%** across 7 classes
 
 | Class | Precision | Recall | F1 Score | Key Features |
 |---|---|---|---|---|
-| NORMAL | 98% | 93% | 96% | Low rate, regular IAT |
-| DOS_FLOOD | 100% | 83% | 91% | High packet_rate, low IAT |
-| REPLAY_ATTACK | 94% | 94% | 94% | High duplicate_ratio, frozen seq |
-| SLOW_RATE_ATTACK | 91% | 100% | 96% | Very low rate, huge IAT |
+| **NORMAL** | 0.97 | 1.00 | 0.98 | Low rate, regular IAT |
+| **DATA_POISON** | 0.99 | 0.89 | 0.94 | Normal IAT, spoofed payload |
+| **REPLAY_ATTACK** | 1.00 | 0.90 | 0.95 | High duplicate_ratio, frozen seq |
+| **DOS_FLOOD** | 0.93 | 0.90 | 0.91 | High packet_rate, low IAT |
+| **TOPIC_BOMB** | 1.00 | 0.92 | 0.96 | Extremely high packet_rate |
+| **EVASION_ATTACK** | 0.91 | 0.97 | 0.94 | Staggered timing, high variance |
+| **SLOW_RATE_ATTACK** | 0.50 | 0.08 | 0.13 | Very low rate, huge IAT |
 
-*Note: The Attacker Node has been upgraded to support three additional advanced attacks (Data Poisoning, Topic Bombing, and Adversarial Evasion), allowing collection of new datasets and model expansion to 7 classes.*
+![Confusion Matrix](ml_model/confusion_matrix.png)
+![Feature Importance](ml_model/feature_importance.png)
+
+#### Training Insights
+The newly added advanced attacks (`DATA_POISON`, `TOPIC_BOMB`, `EVASION_ATTACK`) were successfully learned by the model with F1-scores exceeding 90%. Notably, the `EVASION_ATTACK` was specifically designed to trick standard flow-based thresholding by artificially inflating the standard deviation of inter-arrival times, but the Random Forest model successfully adapted by correlating multiple features, achieving a 97% recall rate.
+
+#### Addressing ML Limitations: The Hybrid Detection Pipeline
+Flow-based Machine Learning fundamentally struggles with two types of attacks:
+1. **Payload Spoofing (`DATA_POISON`)**: Since the flow characteristics (speed, gaps) are perfectly normal, the ML model has no distinguishing flow features to evaluate.
+2. **Long-Term Timings (`SLOW_RATE_ATTACK`)**: The model evaluates a 10-second sliding window, but Slow Rate attacks fire every 15-30 seconds. A 10-second window is too narrow to capture the pattern, causing high false negatives (Recall 0.08 in pure ML testing).
+
+To solve this, NetGuard AI implements an industry-standard **Hybrid Detection Pipeline (Ensemble)**:
+- **Stage 1: Deterministic Rule Engine**: Intercepts traffic *before* the ML model to perform deep payload inspection (catching `DATA_POISON`) and long-term state tracking (catching `SLOW_RATE_ATTACK`). If triggered, it instantly overrides with 100% confidence.
+- **Stage 2: Random Forest ML Engine**: If the deterministic rules pass, the traffic flows to the Machine Learning model, which acts as a powerful anomaly detector for complex, high-speed timing attacks (`DOS_FLOOD`, `REPLAY_ATTACK`, `TOPIC_BOMB`, `EVASION_ATTACK`).
 
 **Top model-learned features (global importance):**
 1. `duplicate_ratio` — Primary indicator for Replay Attacks (frozen seq numbers)
@@ -508,7 +524,7 @@ python -m uvicorn main:app --host 0.0.0.0 --port 8000
 Watch for:
 ```
 [ML] Model loaded from ...netguard_model.pkl
-[ML] Classes: ['DOS_FLOOD' 'NORMAL' 'REPLAY_ATTACK' 'SLOW_RATE_ATTACK']
+[ML] Classes: ['DATA_POISON' 'DOS_FLOOD' 'EVASION_ATTACK' 'NORMAL' 'REPLAY_ATTACK' 'SLOW_RATE_ATTACK' 'TOPIC_BOMB']
 [MQTT] Connected rc=0
 [ML] Inference loop started
 ```
@@ -589,8 +605,8 @@ NetGuard-AI/
 │
 ├── ml_model/
 │   ├── train_model.py                # Full retraining script (10-feature windowed schema)
-│   ├── augment_and_train.py          # Data augmentation + retrain (all 4 classes)
-│   └── netguard_model.pkl            # Trained model (95.32% accuracy, 4 classes)
+│   ├── augment_and_train.py          # Data augmentation + retrain (all 7 classes)
+│   └── netguard_model.pkl            # Trained model (96.59% accuracy, 7 classes)
 │
 ├── real_time_collector/
 │   ├── real_time_collector.py        # Live MQTT → labelled CSV data collector

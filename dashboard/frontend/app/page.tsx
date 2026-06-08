@@ -135,9 +135,9 @@ export default function Page() {
                 {demoActive && <span className="demo-active-pill">SIMULATING</span>}
               </div>
               <div className="demo-bar-btns">
-                {(["NORMAL","DOS_FLOOD","REPLAY_ATTACK","SLOW_RATE_ATTACK"] as const).map(m => {
-                  const colors: Record<string,string> = { NORMAL:"var(--green)", DOS_FLOOD:"var(--red)", REPLAY_ATTACK:"var(--amber)", SLOW_RATE_ATTACK:"var(--blue)" };
-                  const labels: Record<string,string> = { NORMAL:"Normal", DOS_FLOOD:"DoS Flood", REPLAY_ATTACK:"Replay", SLOW_RATE_ATTACK:"Slow Rate" };
+                {(["NORMAL","DOS_FLOOD","REPLAY_ATTACK","SLOW_RATE_ATTACK","DATA_POISON","TOPIC_BOMB","EVASION_ATTACK"] as const).map(m => {
+                  const colors: Record<string,string> = { NORMAL:"var(--green)", DOS_FLOOD:"var(--red)", REPLAY_ATTACK:"var(--amber)", SLOW_RATE_ATTACK:"var(--blue)", DATA_POISON:"var(--purple)", TOPIC_BOMB:"var(--pink)", EVASION_ATTACK:"var(--cyan)" };
+                  const labels: Record<string,string> = { NORMAL:"Normal", DOS_FLOOD:"DoS Flood", REPLAY_ATTACK:"Replay", SLOW_RATE_ATTACK:"Slow Rate", DATA_POISON:"Data Poison", TOPIC_BOMB:"Topic Bomb", EVASION_ATTACK:"Evasion" };
                   const active = demoMode === m && demoActive;
                   return (
                     <button key={m}

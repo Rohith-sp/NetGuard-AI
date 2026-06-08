@@ -1,13 +1,13 @@
 "use client";
 import type { NodeData, PacketEntry, AlertEntry, MLState } from "../hooks/useLiveData";
 
-const ATTACKS = ["DOS_FLOOD", "REPLAY_ATTACK", "SLOW_RATE_ATTACK"];
+const ATTACKS = ["DOS_FLOOD", "REPLAY_ATTACK", "SLOW_RATE_ATTACK", "DATA_POISON", "TOPIC_BOMB", "EVASION_ATTACK"];
 
 function sevClass(s: string) {
   return s === "CRITICAL" ? "sev-critical" : s === "HIGH" ? "sev-high" : s === "MEDIUM" ? "sev-medium" : "sev-low";
 }
 function labelClass(l: string) {
-  return l === "LEGITIMATE" ? "legit" : l === "DOS_FLOOD" ? "dos" : l === "REPLAY_ATTACK" ? "replay" : l === "SLOW_RATE_ATTACK" ? "slow" : "normal";
+  return l === "LEGITIMATE" ? "legit" : l === "DOS_FLOOD" ? "dos" : l === "REPLAY_ATTACK" ? "replay" : l === "SLOW_RATE_ATTACK" ? "slow" : l === "DATA_POISON" ? "poison" : l === "TOPIC_BOMB" ? "bomb" : l === "EVASION_ATTACK" ? "evasion" : "normal";
 }
 // Translate raw mode to a neutral public-facing label
 function publicLabel(l: string, device: string): string {
@@ -15,6 +15,9 @@ function publicLabel(l: string, device: string): string {
     if (l === "DOS_FLOOD")         return "HIGH-FREQ";
     if (l === "REPLAY_ATTACK")     return "REPEAT-TX";
     if (l === "SLOW_RATE_ATTACK")  return "LOW-FREQ";
+    if (l === "DATA_POISON")       return "SPOOFING";
+    if (l === "TOPIC_BOMB")        return "OVERLOAD";
+    if (l === "EVASION_ATTACK")    return "EVASION";
     if (l === "NORMAL")            return "MOTION";
   }
   return l;

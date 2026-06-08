@@ -15,7 +15,7 @@ export interface MLState       { label: string; confidence: number; isAttack: bo
 export interface SensorPoint  { t: string; temp?: number; humidity?: number; light?: number; }
 export interface IncidentState { text: string; label: string; ts: string; }
 
-const ATTACKS = ["DOS_FLOOD", "REPLAY_ATTACK", "SLOW_RATE_ATTACK"];
+const ATTACKS = ["DOS_FLOOD", "REPLAY_ATTACK", "SLOW_RATE_ATTACK", "DATA_POISON", "TOPIC_BOMB", "EVASION_ATTACK"];
 
 export function useLiveData() {
   const [nodes, setNodes]       = useState<Record<string, NodeData>>({
