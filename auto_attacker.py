@@ -45,8 +45,8 @@ def send_mode(mode):
 try:
     print("Automated Sneaky Attacker Loop Active. Press [Ctrl+C] to stop.")
     
-    # 1. Initial baseline to record clean normal data (Long startup baseline)
-    initial_normal_dur = random.randint(150, 240) # 2.5 to 4 minutes
+    # 1. Initial baseline to record clean normal data (Stealth startup)
+    initial_normal_dur = random.randint(60, 100) # 1 to 1.7 minutes
     print(f"\n[*] [INIT] Establishing initial NORMAL baseline traffic for {initial_normal_dur} seconds...")
     send_mode("NORMAL")
     time.sleep(initial_normal_dur)
@@ -69,8 +69,8 @@ try:
         time.sleep(attack_dur)
 
         # 3. Transition back to long, dominant NORMAL recovery windows (unpredictably spaced)
-        # Normal durations are kept very long (3 to 5.5 minutes) so that attacks are sparse
-        recovery_dur = random.randint(180, 330) 
+        # Normal durations are set to 80-150 seconds to keep the process reasonably fast but clean
+        recovery_dur = random.randint(80, 150) 
         
         print(f"\n[*] [NORMAL] Resetting to dominant NORMAL baseline for {recovery_dur} seconds...")
         send_mode("NORMAL")
