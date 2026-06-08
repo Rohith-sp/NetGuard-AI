@@ -1,5 +1,7 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
 
 // ==========================================
 // 1. WiFi & MQTT Configuration
@@ -11,6 +13,14 @@ const int   mqtt_port   = 1883;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
+
+// Initialize LCD at address 0x27 (standard for I2C backpack), 16 cols, 2 rows
+// Connect SDA to ESP32 pin 21, SCL to ESP32 pin 22
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// LCD refresh throttling (prevents I2C write delays during high-rate attacks)
+unsigned long lastLcdUpdateTime = 0;
+const unsigned long lcdUpdateInterval = 500; // update at most every 500ms
 
 // ==========================================
 // 2. Hardware Pins
@@ -53,11 +63,49 @@ String getModeString() {
   return "NORMAL";
 }
 
+void updateLCD(bool force) {
+  unsigned long now = millis();
+  if (!force && (now - lastLcdUpdateTime < lcdUpdateInterval)) {
+    return;
+  }
+  lastLcdUpdateTime = now;
+
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Mode: ");
+  switch (currentMode) {
+    case NORMAL:           lcd.print("NORMAL"); break;
+    case DOS_FLOOD:        lcd.print("DOS FLOOD"); break;
+    case REPLAY_ATTACK:    lcd.print("REPLAY"); break;
+    case SLOW_RATE_ATTACK: lcd.print("SLOW-RATE"); break;
+    case DATA_POISON:      lcd.print("DATA POISON"); break;
+    case TOPIC_BOMB:       lcd.print("TOPIC BOMB"); break;
+    case EVASION_ATTACK:   lcd.print("EVASION"); break;
+  }
+  
+  lcd.setCursor(0, 1);
+  if (WiFi.status() != WL_CONNECTED) {
+    lcd.print("WiFi: Offline");
+  } else if (!client.connected()) {
+    lcd.print("MQTT: Offline");
+  } else {
+    lcd.print("Sent: ");
+    lcd.print(seqNumber);
+    lcd.print(" pkts");
+  }
+}
+
 void setup_wifi() {
   delay(10);
   Serial.println();
   Serial.print("Connecting to WiFi: ");
   Serial.println(ssid);
+
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("WiFi Connecting");
+  lcd.setCursor(0, 1);
+  lcd.print(ssid);
 
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
@@ -65,6 +113,11 @@ void setup_wifi() {
     Serial.print(".");
   }
   Serial.println("\nWiFi connected.");
+  
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("WiFi Connected!");
+  delay(1000);
 }
 
 void applyMode(String modeStr) {
@@ -89,6 +142,7 @@ void applyMode(String modeStr) {
   
   Serial.print(">> Mode set to: ");
   Serial.println(getModeString());
+  updateLCD(true); // Force LCD update immediately on mode change
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
@@ -124,13 +178,26 @@ void reconnect() {
     String clientId = "ESP32-Attacker-" + String(random(0xffff), HEX);
     Serial.print("Attempting MQTT connection...");
     
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("MQTT Connecting");
+    
     if (client.connect(clientId.c_str())) {
       Serial.println("Connected!");
       client.subscribe("netguard/cmd"); // Subscribe to command topic
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("MQTT Connected!");
+      delay(1000);
+      updateLCD(true);
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
       Serial.println(" try again in 5 seconds");
+      
+      lcd.setCursor(0, 1);
+      lcd.print("Failed, rc=");
+      lcd.print(client.state());
       delay(5000);
     }
   }
@@ -142,6 +209,16 @@ void reconnect() {
 void setup() {
   Serial.begin(115200);
   
+  // Initialize LCD
+  lcd.init();
+  lcd.backlight();
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("NetGuard-AI");
+  lcd.setCursor(0, 1);
+  lcd.print("Booting up...");
+  delay(1500);
+  
   // Set GPIO 14 as input with pull-up. Button to GND will pull it LOW.
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   
@@ -149,6 +226,8 @@ void setup() {
   client.setServer(mqtt_server, mqtt_port);
   client.setCallback(mqttCallback); // Set callback
   
+  updateLCD(true); // Show initial mode on LCD
+
   Serial.println("\n==============================================");
   Serial.println(">> ATTACKER NODE READY — Press button to cycle modes.");
   Serial.print(">> Current Mode: ");
@@ -185,6 +264,7 @@ void loop() {
     
     Serial.print("\n>> MODE SWITCHED TO: ");
     Serial.println(getModeString());
+    updateLCD(true); // Force update LCD on manual button click
   }
   lastButtonState = reading;
 
@@ -293,4 +373,7 @@ void loop() {
     Serial.print("]: ");
     Serial.println(payload);
   }
+
+  // Throttled update of the LCD screen (refresh packet count / connectivity)
+  updateLCD(false);
 }
