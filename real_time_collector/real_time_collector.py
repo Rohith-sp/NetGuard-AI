@@ -121,9 +121,8 @@ def add_log(msg):
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
         add_log(f"Connected to MQTT Broker ({BROKER}:{PORT})")
-        for topic in TOPIC_MAP.keys():
-            client.subscribe(topic, 0)
-            add_log(f"Subscribed → {topic}")
+        client.subscribe("netguard/#", 0)
+        add_log("Subscribed to wildcard topic → netguard/#")
     else:
         add_log(f"Connection failed with code {rc}")
 
@@ -164,11 +163,15 @@ def on_message(client, userdata, msg):
     
     # Determine Ground Truth Label
     if label_mode == "AUTO":
-        if topic == "netguard/attacker":
+        # Check if the payload mode represents an active attack
+        if mode in ["DOS_FLOOD", "REPLAY_ATTACK", "SLOW_RATE_ATTACK", "DATA_POISON", "TOPIC_BOMB", "EVASION_ATTACK"]:
             lbl = mode
             current_label = mode # Keep manual synced for display
+        elif topic == "netguard/attacker":
+            lbl = mode
+            current_label = mode
         else:
-            # If standard node, check if attacker is active or normal
+            # If standard node and no payload mode matches, check if attacker state is active
             lbl = current_label
     else:
         lbl = current_label
@@ -278,7 +281,8 @@ def render_dashboard(client_connected):
     lines.append(f"  {BOLD}Controls:{RESET}")
     lines.append(f"    [Space] Pause/Resume Logging    [M] Set Manual Labeling Mode")
     lines.append(f"    [A] Set Auto Labeling Mode      [N] Reset/Start New File Session")
-    lines.append(f"    [0] Tag NORMAL      [1] Tag DOS_FLOOD      [2] Tag REPLAY      [3] Tag SLOW_RATE")
+    lines.append(f"    [0] Tag NORMAL       [1] Tag DOS_FLOOD    [2] Tag REPLAY_ATTACK    [3] Tag SLOW_RATE_ATTACK")
+    lines.append(f"    [4] Tag DATA_POISON  [5] Tag TOPIC_BOMB   [6] Tag EVASION_ATTACK")
     lines.append(f"    [Q] Quit Safely")
     lines.append(f"{GREEN}------------------------------------------------------------------------{RESET}")
     
@@ -360,6 +364,15 @@ def main():
                 elif key == '3':
                     current_label = "SLOW_RATE_ATTACK"
                     add_log("Manual Ground Truth Tag → SLOW_RATE_ATTACK")
+                elif key == '4':
+                    current_label = "DATA_POISON"
+                    add_log("Manual Ground Truth Tag → DATA_POISON")
+                elif key == '5':
+                    current_label = "TOPIC_BOMB"
+                    add_log("Manual Ground Truth Tag → TOPIC_BOMB")
+                elif key == '6':
+                    current_label = "EVASION_ATTACK"
+                    add_log("Manual Ground Truth Tag → EVASION_ATTACK")
                 elif key == 'q':
                     add_log("Stopping collector loop...")
                     break
