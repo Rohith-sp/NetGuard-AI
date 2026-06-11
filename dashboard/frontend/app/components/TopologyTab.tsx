@@ -115,7 +115,7 @@ const ANIM_COLOR: Record<string, string> = {
 };
 
 export default function TopologyTab({ n1, n2, n3, ml: _realMl, wsReady, simulate, triggerAttack, simKey }: Props) {
-  const simCfg   = SIM_MODES.find(m => m.key === simKey)!;
+  const simCfg   = SIM_MODES.find(m => m.key === simKey) || SIM_MODES[0];
   const isAttack = simCfg.isAttack;
   const pred     = simCfg.pred;
   const anim     = simCfg.animStyle;
