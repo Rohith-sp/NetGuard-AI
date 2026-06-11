@@ -7,6 +7,7 @@ import TopologyTab, { type SimKey } from "./components/TopologyTab";
 import AnalyticsTab from "./components/AnalyticsTab";
 import IncidentReport from "./components/IncidentReport";
 import GlobalImportanceChart from "./components/GlobalImportanceChart";
+import { OverviewBottomCards } from "./components/OverviewBottomCards";
 
 function renderMarkdown(text: string) {
   let html = text
@@ -168,6 +169,7 @@ export default function Page() {
                 <AlertLog alerts={alerts} />
               </div>
             </div>
+            <OverviewBottomCards />
           </>
         )}
 
