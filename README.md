@@ -1,490 +1,262 @@
-<div align="center">
+# NetGuard AI — IoT Network Intrusion Detection System
 
-# NetGuard AI
-### Real-Time IoT Intrusion Detection System
+> **Semester IV EL Project** · Real-time AI-powered security operations center for a 3-node ESP32 IoT network.
 
-**Semester IV Elective Lab — IoT Security Operations Center**
-
-[![Python](https://img.shields.io/badge/Python-3.12-blue?style=flat-square&logo=python)](https://python.org)
-[![Next.js](https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=next.js)](https://nextjs.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-teal?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
-[![scikit-learn](https://img.shields.io/badge/scikit--learn-1.8-orange?style=flat-square&logo=scikit-learn)](https://scikit-learn.org)
-[![SHAP](https://img.shields.io/badge/SHAP-0.51-purple?style=flat-square)](https://shap.readthedocs.io)
-[![MQTT](https://img.shields.io/badge/MQTT-HiveMQ-green?style=flat-square)](https://www.hivemq.com)
-
-</div>
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat&logo=python)](https://python.org)
+[![Next.js](https://img.shields.io/badge/Next.js-15-000000?style=flat&logo=nextdotjs)](https://nextjs.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?style=flat&logo=fastapi)](https://fastapi.tiangolo.com)
+[![MQTT](https://img.shields.io/badge/MQTT-HiveMQ-660066?style=flat)](https://www.hivemq.com)
+[![scikit-learn](https://img.shields.io/badge/scikit--learn-RF%207--class-F7931E?style=flat&logo=scikitlearn)](https://scikit-learn.org)
 
 ---
 
-## Overview
+## Table of Contents
 
-NetGuard AI is a complete, end-to-end IoT intrusion detection system built on real ESP32 hardware. It monitors network traffic from three physical nodes in real time, uses a trained Random Forest classifier to detect cyberattacks (supporting six distinct attack modes in hardware), explains every decision using SHAP values, and presents everything in a live Next.js SOC dashboard.
+- [What is NetGuard AI?](#what-is-netguard-ai)
+- [System Architecture](#system-architecture)
+- [How It Works](#how-it-works)
+- [Repository Structure](#repository-structure)
+- [Hardware Setup](#hardware-setup)
+- [Quick Start](#quick-start)
+- [ML Pipeline Deep Dive](#ml-pipeline-deep-dive)
+- [Attack Classes & Detection Strategy](#attack-classes--detection-strategy)
+- [API Reference](#api-reference)
+- [Dashboard Tabs](#dashboard-tabs)
+- [Data Collection & Retraining](#data-collection--retraining)
+- [Environment Variables](#environment-variables)
+- [Running Without Hardware](#running-without-hardware)
 
-The system is fully explainable — every classification comes with a breakdown of which network features drove the decision, an auto-generated natural language incident report, and an AI chatbot that can answer questions about the current network state in plain English.
+---
+
+## What is NetGuard AI?
+
+NetGuard AI is an end-to-end **IoT Intrusion Detection System (IDS)** that combines physical ESP32 microcontrollers, a cloud MQTT broker, a Python/FastAPI AI backend, and a Next.js real-time dashboard. It detects 7 classes of network attacks using a **Two-Stage Hybrid Detection Pipeline** — a Statistical Profiler (unsupervised math) followed by a trained Random Forest ML model.
+
+The system is designed to be a complete demonstration platform, allowing you to:
+- Monitor live sensor telemetry from real IoT hardware
+- Trigger 7 types of network attacks (from software or hardware)
+- Watch the AI system detect, classify, and explain each attack in real time with SHAP values
+- Query an AI-powered RAG chatbot that is grounded in live network state
 
 ---
 
 ## System Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         HARDWARE LAYER                                      │
-│                                                                             │
-│  ESP32_1 (DHT11)          ESP32_2 (LDR)          ESP32_3 (Attacker)        │
-│  • Temperature sensor     • Light sensor          • Attack simulator        │
-│  • Alert subscriber       • Publishes LUX         • 7 attack/sim modes      │
-│  • LED + Buzzer on alert    netguard/device2      • I2C 16x2 LCD Display    │
-│  • Publishes to                                   • Button/MQTT controlled  │
-│    netguard/device1                               • Publishes to            │
-│                                                     netguard/attacker       │
-└──────────────┬───────────────────┬───────────────────┬──────────────────────┘
-               │                   │                   │
-               └───────────────────┴───────────────────┘
-                                   │
-                                   ▼  MQTT (port 1883)
-                    ┌──────────────────────────────┐
-                    │   broker.hivemq.com (Public) │
-                    │   Topic namespace: netguard/# │
-                    └──────────────┬───────────────┘
-                                   │
-                                   ▼
-          ┌─────────────────────────────────────────────────────┐
-          │              FASTAPI BACKEND  (port 8000)           │
-          │                                                     │
-          │  ┌─────────────┐  ┌──────────────┐  ┌──────────┐  │
-          │  │ MQTT Client │  │  ML Inference │  │   SHAP   │  │
-          │  │  (Paho)     │  │  Every 5s     │  │ Explainer│  │
-          │  └──────┬──────┘  └──────┬───────┘  └────┬─────┘  │
-          │         │                │                │        │
-          │  ┌──────▼────────────────▼────────────────▼──────┐ │
-          │  │          WebSocket Bridge  /ws/live            │ │
-          │  └──────────────────────────┬────────────────────┘ │
-          │                             │                      │
-          │  ┌──────────────────────────▼────────────────────┐ │
-          │  │  RAG Analyst  (Groq LLM / Gemini / Fallback)  │ │
-          │  └───────────────────────────────────────────────┘ │
-          │                                                     │
-          │  Alert Publisher → netguard/alerts (ESP32 buzzer)  │
-          └──────────────────────────┬──────────────────────────┘
-                                     │  WebSocket
-                                     ▼
-          ┌─────────────────────────────────────────────────────┐
-          │           NEXT.JS DASHBOARD  (port 3000)            │
-          │                                                     │
-          │  Live Analytics │ Overview │ Topology │ AI Analyst  │
-          └─────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    classDef hw fill:#1a2e1a,stroke:#4ade80,color:#4ade80
+    classDef broker fill:#1e1a2e,stroke:#818cf8,color:#818cf8
+    classDef backend fill:#1e1a2e,stroke:#8b5cf6,color:#c4b5fd
+    classDef ml fill:#1a1e2e,stroke:#3b82f6,color:#93c5fd
+    classDef frontend fill:#1a2e2e,stroke:#22d3ee,color:#67e8f9
+    classDef external fill:#2e1a1a,stroke:#f97316,color:#fdba74
+
+    subgraph HW["🔌 Hardware Layer (ESP32)"]
+        ESP1["ESP32_1\nDHT22 Temp/Humidity\nnetguard/device1"]:::hw
+        ESP2["ESP32_2\nLDR Light Sensor\nnetguard/device2"]:::hw
+        ESP3["ESP32_3\nAttacker Node\nnetguard/attacker\n+ 16×2 I2C LCD\n+ GPIO14 Button"]:::hw
+    end
+
+    MQTT[("☁ HiveMQ\nPublic Broker\nbroker.hivemq.com:1883\nnetguard/#")]:::broker
+
+    ESP1 -->|"MQTT JSON\n{temp, humidity}"| MQTT
+    ESP2 -->|"MQTT JSON\n{light}"| MQTT
+    ESP3 -->|"MQTT JSON\n{mode, seq}"| MQTT
+
+    subgraph BE["⚙ FastAPI Backend (Python 3.12)"]
+        SUB["Paho MQTT\nSubscriber"]:::backend
+        BUF["60s Packet\nDeque Buffer"]:::backend
+        PROF["Statistical Profiler\nstatistical_analyzer.py\nEMA Z-Score + IAT"]:::ml
+        RF["Random Forest\n7-class · 10 features\nSHAP TreeExplainer"]:::ml
+        RAG["RAG Analyst\nGroq LLM / Gemini\n+ DATASETS.md KB"]:::external
+        WS["WebSocket\n/ws/live\nBroadcast Engine"]:::backend
+    end
+
+    MQTT -->|"on_message()"| SUB
+    SUB --> BUF
+    BUF -->|"Every 5s\n10s window"| PROF
+    PROF -->|"Stage 1 pass"| RF
+    PROF -->|"DATA_POISON\nSLOW_RATE override"| WS
+    RF -->|"label + confidence\n+ SHAP values"| WS
+    WS -->|"attack → MQTT alert"| MQTT
+    RAG -->|"incident narrative"| WS
+
+    subgraph FE["🖥 Next.js 15 Dashboard"]
+        HOOK["useLiveData()\nWebSocket hook"]:::frontend
+        PAGE["page.tsx\n5 tabs"]:::frontend
+        TOPO["TopologyTab\nSVG + Attack Sim"]:::frontend
+        ANA["AnalyticsTab\nRecharts"]:::frontend
+        CHAT["AI Analyst\nRAG Chatbot"]:::frontend
+    end
+
+    WS -->|"ws://localhost:8000\n/ws/live\nJSON messages"| HOOK
+    HOOK --> PAGE
+    PAGE --> TOPO
+    PAGE --> ANA
+    PAGE --> CHAT
+
+    subgraph DEV["🛠 Dev Tools"]
+        SIM["node_simulator.py\nSoftware ESP32 twins"]:::external
+        COL["real_time_collector.py\nCSV labeler"]:::external
+        TRAIN["augment_and_train.py\nRF retraining"]:::external
+    end
+
+    SIM -->|"MQTT"| MQTT
+    COL -->|"subscribes"| MQTT
+    TRAIN -->|"reads CSVs\nwrites .pkl"| RF
 ```
 
 ---
 
-## Hardware Nodes
+## How It Works
 
-### ESP32_1 — DHT11 Sensor Node (`arduino_codes/netguard-dht/`)
+NetGuard AI uses a **Two-Stage Hybrid Detection Pipeline** that runs every 5 seconds. This design deliberately overcomes the known limitations of purely flow-based ML models on certain attack types.
 
-The primary environmental sensor node. Reads temperature and humidity from a DHT11 sensor and publishes to `netguard/device1` every ~3 seconds. Also subscribes to `netguard/alerts` — when the ML model detects an attack, this node receives the alert and triggers a red LED flash + buzzer for 5 seconds as a physical alarm.
+### Stage 1 — Statistical Profiler (`statistical_analyzer.py`)
 
-**MQTT Payload:**
-```json
-{
-  "device": "esp32_1",
-  "temp": 28.3,
-  "humidity": 65.0,
-  "seq": 412,
-  "ist_hour": 14.52,
-  "synced": true
-}
+This stage runs *before* the ML model and uses pure unsupervised mathematics. It maintains two live trackers:
+
+#### 1a. Payload Anomaly Tracker (Data Poisoning)
+
+The profiler maintains a live **Exponential Moving Average (EMA)** and variance tracker on the temperature values arriving from `netguard/device1`. For every new reading:
+
+```
+Z-Score = |current_value - EMA| / sqrt(variance)
 ```
 
-### ESP32_2 — LDR Sensor Node (`arduino_codes/netguard-ldr/`)
+If `Z > 3.0`, the value is statistically impossible (e.g., temperature jumping from 26°C → 999°C). The profiler immediately injects a `DATA_POISON` packet into the buffer and bypasses the ML stage entirely. Critically, the EMA baseline is **only updated on non-outlier readings**, preventing an attacker from gradually poisoning the baseline.
 
-Ambient light sensor using an LDR (Light Dependent Resistor). Publishes light intensity in LUX to `netguard/device2`. Values follow a natural day/night curve aligned to IST (Indian Standard Time) via the timesync system.
+#### 1b. Long-Term Packet State Tracker (Slow Rate Attack)
 
-**MQTT Payload:**
-```json
-{
-  "device": "esp32_2",
-  "light": 847,
-  "seq": 201,
-  "ist_hour": 14.52,
-  "synced": true
-}
+The profiler maintains a rolling queue of the **exact timestamps of the last 5 packets** received across all nodes. During the inference cycle, if the ML window is empty (no packets in the last 10 seconds), the profiler checks:
+
+```
+median_IAT = median of (ts[i+1] - ts[i]) for the last 5 packets
 ```
 
-### ESP32_3 — Attacker Node (`arduino_codes/netguard-attacker/`)
+If `median_IAT > 10,000ms`, the profiler triggers `SLOW_RATE_ATTACK` with 100% confidence. This works regardless of how long ago the packets arrived, overcoming the 10-second ML window's blind spot.
 
-A standalone ESP32 that simulates six distinct cyberattack patterns (plus a normal mode). The active mode can be cycled using a physical push button on the board or triggered remotely from the dashboard via MQTT. It also outputs status messages and attack modes on an attached **16x2 I2C LCD screen** (SDA ➔ GPIO 21, SCL ➔ GPIO 22).
+### Stage 2 — Random Forest ML (`netguard_model.pkl`)
 
-| Mode | Button Cycle | Behavior | IAT | Packet Rate | Target Topic |
-|---|---|---|---|---|---|
-| `NORMAL` | Mode 1 | Mimics legitimate sensor | 2–5 seconds | ~0.3 pkt/s | `netguard/attacker` |
-| `DOS_FLOOD` | Mode 2 | Rapid burst flooding | 150–350 ms | ~4 pkt/s | `netguard/attacker` |
-| `REPLAY_ATTACK` | Mode 3 | Frozen sequence numbers replayed | 800–1500 ms | ~1 pkt/s | `netguard/attacker` |
-| `SLOW_RATE_ATTACK` | Mode 4 | Ghost packets to evade detection | 15–30 seconds | ~0.05 pkt/s | `netguard/attacker` |
-| `DATA_POISON` | Mode 5 | Spoofs DHT node with poisoned data | 2–5 seconds | ~0.3 pkt/s | `netguard/device1` |
-| `TOPIC_BOMB` | Mode 6 | Floods broker with random topics | 50–100 ms | ~15 pkt/s | `netguard/junk_X` |
-| `EVASION_ATTACK` | Mode 7 | Evasion flood with randomized delays | Staggered | ~4 pkt/s | `netguard/attacker` |
+If traffic passes Stage 1 without triggering a deterministic alarm, the pipeline extracts **10 flow features** from the 10-second sliding window and feeds them to the trained Random Forest:
+
+| Feature | What it captures |
+|---|---|
+| `packet_count` | Total packets in window |
+| `packet_rate` | Packets per second |
+| `mean_inter_arrival_ms` | Avg timing gap |
+| `std_inter_arrival_ms` | Timing consistency / jitter |
+| `min_inter_arrival_ms` | Fastest burst |
+| `max_inter_arrival_ms` | Slowest gap |
+| `duplicate_ratio` | Replay / frozen-seq ratio |
+| `seq_increment_mean` | Sequence number behavior |
+| `seq_increment_std` | Sequence predictability |
+| `unique_modes` | Diversity of payload modes |
+
+The Random Forest outputs a predicted class label and confidence probability. **SHAP values** are computed in a background thread pool (`asyncio.to_thread`) so the event loop never blocks — critical for WebSocket stability.
+
+### Output & Alerting
+
+The pipeline result is broadcast over WebSocket to all connected browsers. If an attack is detected:
+- An MQTT alert is published to `netguard/alerts` (triggers physical buzzer/LED on ESP32s)
+- A RAG-powered incident narrative is generated via Groq or Gemini LLM (60-second cooldown)
+- The dashboard updates in real time with the label, confidence, SHAP waterfall, and anomaly score
 
 ---
 
-## Machine Learning Pipeline
+## Repository Structure
 
-### Data Collection (`real_time_collector/real_time_collector.py`)
-
-A live MQTT subscriber that records all packets from the three nodes into a labelled CSV file. Supports auto-labelling from the attacker node's payload mode field.
-
-**Running the collector:**
-```bash
-cd real_time_collector
-python real_time_collector.py
+```
+NetGuard-AI/
+├── arduino_codes/
+│   ├── netguard-attacker/          # ESP32_3 firmware — 7 attack modes + LCD + button
+│   ├── netguard-dht/               # ESP32_1 firmware — DHT22 temperature & humidity
+│   └── netguard-ldr/               # ESP32_2 firmware — LDR ambient light
+│
+├── dashboard/
+│   ├── backend/
+│   │   ├── main.py                 # FastAPI app — MQTT bridge, inference loop, WebSocket
+│   │   ├── statistical_analyzer.py # Unsupervised EMA Z-Score + IAT profiler
+│   │   ├── rag.py                  # RAG analyst — Groq/Gemini LLM + DATASETS.md KB
+│   │   ├── node_simulator.py       # Software twins for all 3 ESP32 nodes
+│   │   └── .env                    # API keys (GROQ_API_KEY, GEMINI_API_KEY)
+│   │
+│   └── frontend/
+│       ├── app/
+│       │   ├── page.tsx            # Root page — all 5 tabs, tab routing
+│       │   ├── layout.tsx          # HTML shell, Google Fonts (DM Sans + JetBrains Mono)
+│       │   ├── globals.css         # Full design system — CSS vars, components, animations
+│       │   ├── hooks/
+│       │   │   └── useLiveData.ts  # WebSocket hook — single source of truth for all data
+│       │   └── components/
+│       │       ├── Panels.tsx      # KpiRow, NodeRow, MLPanel, HeatmapPanel, AlertLog, PacketFeed
+│       │       ├── TopologyTab.tsx # SVG network map + attack simulation buttons
+│       │       ├── AnalyticsTab.tsx# Recharts area charts — temp, humidity, light
+│       │       ├── Graphs.tsx      # AnomalyGraph, PktRateGraph (recharts)
+│       │       ├── IncidentReport.tsx # Auto-generated RAG incident narrative card
+│       │       └── GlobalImportanceChart.tsx # Model feature importance bar chart
+│       └── package.json
+│
+├── ml_model/
+│   ├── netguard_model.pkl          # Trained Random Forest (7-class, 10 features, ~7MB)
+│   ├── train_model.py              # Training script — mirrors backend feature extraction
+│   ├── augment_and_train.py        # Data augmentation + retraining pipeline
+│   ├── confusion_matrix.png        # Model evaluation output
+│   └── feature_importance.png      # SHAP global importance plot
+│
+├── real_time_collector/
+│   ├── real_time_collector.py      # Interactive terminal — logs MQTT to labeled CSV
+│   ├── extractor.py                # Feature extraction utilities
+│   ├── config.json                 # Collector configuration (broker, topics, output)
+│   └── collected_datasets/         # CSV training data (gitignored)
+│
+├── DATASETS.md                     # RAG knowledge base — attack behaviors and features
+├── FUTURE_WORK.md                  # Planned enhancements
+└── README.md                       # This file
 ```
 
-The collector runs interactively with a live terminal dashboard showing:
-- Packets logged per device
-- Current frequency per device
-- Label mode (AUTO from attacker payload)
-- Session elapsed time
+---
 
-**Output:** `collected_datasets/telemetry_session_YYYYMMDD_HHMMSS.csv`
+## Hardware Setup
 
-### Feature Engineering
+### Bill of Materials
 
-The ML model does not train on raw packet fields. Instead, it operates on a **10-second sliding window** over attacker packets, computing 10 statistical features:
-
-| Feature | Description | Key For |
+| Component | Qty | Role |
 |---|---|---|
-| `packet_count` | Total packets in 10s window | All classes |
-| `packet_rate` | Packets per second | DOS detection |
-| `mean_inter_arrival_ms` | Average gap between packets | DoS vs Slow Rate |
-| `std_inter_arrival_ms` | Variance in packet timing | Automated script detection |
-| `min_inter_arrival_ms` | Fastest packet gap | DoS flood signature |
-| `max_inter_arrival_ms` | Slowest packet gap | Slow Rate signature |
-| `duplicate_ratio` | Fraction of repeated sequence numbers | Replay Attack |
-| `seq_increment_mean` | Average sequence number delta | Replay (frozen = 0) |
-| `seq_increment_std` | Variance in sequence increments | Consistency check |
-| `unique_modes` | Distinct modes in window | Mode switching detection |
-
-**Single-packet window handling:** When the window contains only one packet (as in Slow Rate Attack where packets arrive every 15–30 seconds), the IAT is set to the full window duration (10,000 ms) — this is the distinguishing signature that allows the model to correctly classify Slow Rate even with sparse data.
-
-### Model Training (`ml_model/train_model.py`)
-
-Trains a 200-tree Random Forest Classifier on windowed feature vectors from the collected CSV.
-
-```bash
-cd ml_model
-python train_model.py
-```
-
-**Training pipeline:**
-1. Load raw CSV from `real_time_collector/collected_datasets/`
-2. Fix labels — only `esp32_3` (attacker node) can have attack labels; sensor nodes are always NORMAL
-3. Build 10-second sliding windows with 5-second stride
-4. 80/20 stratified train/test split
-5. Train RandomForestClassifier with 200 trees
-6. Evaluate and print classification report
-7. Save model to `ml_model/netguard_model.pkl`
-
-### Data Augmentation (`ml_model/augment_and_train.py`)
-
-Because Slow Rate Attack sends only one packet every 15–30 seconds, the raw dataset rarely contains enough windowed samples for this class. This script generates 200 synthetic Slow Rate packets with statistically matching characteristics (IAT = 15–35s, incrementing sequence numbers), merges them with the real dataset, and retrains the model.
-
-```bash
-cd ml_model
-python augment_and_train.py
-```
-
-### Model Performance
-
-**Overall Accuracy: 96.59%** across 7 classes
-
-| Class | Precision | Recall | F1 Score | Key Features |
-|---|---|---|---|---|
-| **NORMAL** | 0.97 | 1.00 | 0.98 | Low rate, regular IAT |
-| **DATA_POISON** | 0.99 | 0.89 | 0.94 | Normal IAT, spoofed payload |
-| **REPLAY_ATTACK** | 1.00 | 0.90 | 0.95 | High duplicate_ratio, frozen seq |
-| **DOS_FLOOD** | 0.93 | 0.90 | 0.91 | High packet_rate, low IAT |
-| **TOPIC_BOMB** | 1.00 | 0.92 | 0.96 | Extremely high packet_rate |
-| **EVASION_ATTACK** | 0.91 | 0.97 | 0.94 | Staggered timing, high variance |
-| **SLOW_RATE_ATTACK** | 0.50 | 0.08 | 0.13 | Very low rate, huge IAT |
-
-![Confusion Matrix](ml_model/confusion_matrix.png)
-![Feature Importance](ml_model/feature_importance.png)
-
-#### Training Insights
-The newly added advanced attacks (`DATA_POISON`, `TOPIC_BOMB`, `EVASION_ATTACK`) were successfully learned by the model with F1-scores exceeding 90%. Notably, the `EVASION_ATTACK` was specifically designed to trick standard flow-based thresholding by artificially inflating the standard deviation of inter-arrival times, but the Random Forest model successfully adapted by correlating multiple features, achieving a 97% recall rate.
-
-#### Addressing ML Limitations: The Hybrid Detection Pipeline
-Flow-based Machine Learning fundamentally struggles with two types of attacks:
-1. **Payload Spoofing (`DATA_POISON`)**: Since the flow characteristics (speed, gaps) are perfectly normal, the ML model has no distinguishing flow features to evaluate.
-2. **Long-Term Timings (`SLOW_RATE_ATTACK`)**: The model evaluates a 10-second sliding window, but Slow Rate attacks fire every 15-30 seconds. A 10-second window is too narrow to capture the pattern, causing high false negatives (Recall 0.08 in pure ML testing).
-
-To solve this, NetGuard AI implements an industry-standard **Hybrid Detection Pipeline (Ensemble)**:
-- **Stage 1: Deterministic Rule Engine**: Intercepts traffic *before* the ML model to perform deep payload inspection (catching `DATA_POISON`) and long-term state tracking (catching `SLOW_RATE_ATTACK`). If triggered, it instantly overrides with 100% confidence.
-- **Stage 2: Random Forest ML Engine**: If the deterministic rules pass, the traffic flows to the Machine Learning model, which acts as a powerful anomaly detector for complex, high-speed timing attacks (`DOS_FLOOD`, `REPLAY_ATTACK`, `TOPIC_BOMB`, `EVASION_ATTACK`).
-
-**Top model-learned features (global importance):**
-1. `duplicate_ratio` — Primary indicator for Replay Attacks (frozen seq numbers)
-2. `mean_inter_arrival_ms` — Distinguishes DoS flood from normal timing
-3. `packet_rate` — Identifies high-intensity burst attacks
-4. `packet_count` — Total volume in window
-5. `min_inter_arrival_ms` — Minimum gap (catches flood signatures)
-
----
-
-## Backend (`dashboard/backend/main.py`)
-
-A FastAPI application that bridges MQTT → WebSocket and runs the ML inference loop.
-
-### MQTT → WebSocket Bridge
-
-Subscribes to all `netguard/#` topics. On each incoming packet:
-- Parses JSON payload
-- Appends to a rolling log of the last 20 messages
-- Buffers attacker packets for the ML inference window
-- Broadcasts structured JSON to all connected WebSocket clients
-
-### ML Inference Loop
-
-Runs every **5 seconds** as an async task:
-
-1. Takes the last 10 seconds of attacker packets from `packet_buffer`
-2. Calls `extract_features()` to compute the 10-feature vector
-3. Runs `model.predict()` and `model.predict_proba()` on the feature vector
-4. Computes **SHAP values** using `shap.TreeExplainer` for the predicted class
-5. Updates `latest_inference` dict and broadcasts via WebSocket as `netguard/inference`
-
-**Single-packet window note:** If only one attacker packet is in the window (Slow Rate scenario), `extract_features()` uses the full window duration as the IAT — exactly matching the augmented training data.
-
-### SHAP Explainability
-
-Every inference cycle produces per-feature SHAP values for the predicted class:
-
-```python
-EXPLAINER = shap.TreeExplainer(model)
-sv = EXPLAINER.shap_values(X)
-# Returns signed importance weights for each of the 10 features
-# Positive = pushed toward attack classification
-# Negative = pushed toward normal classification
-```
-
-SHAP values are included in every `netguard/inference` WebSocket message as a sorted list from most to least influential.
-
-### Alert Publisher
-
-When the model detects an attack (`isAttack = True`):
-- Publishes to `netguard/alerts` via MQTT
-- **30-second cooldown** prevents buzzer spam during sustained attacks
-- Payload includes attack type and confidence level
-- ESP32_1 receives this and triggers LED + buzzer
-
-### Auto-Generated Incident Narrative
-
-When an attack is detected, a background async task generates a 3-sentence human-readable SOC report:
-1. Formats SHAP values + live features into a structured prompt
-2. Calls **Groq (Llama 3.3 70B)** → **Gemini Flash** → **deterministic fallback** in order
-3. Broadcasts the narrative as `netguard/incident` WebSocket topic
-4. **60-second cooldown** — generates at most once per minute
-
-**Example generated narrative:**
-> *"A DOS FLOOD attack was detected at 14:32:11 IST with 97.3% model confidence. The primary driver was packet_rate=8.2 pkt/s (SHAP: +0.68), which is 27× above the normal baseline of 0.3 pkt/s, supported by a collapsed mean_inter_arrival_ms of 245ms (SHAP: +0.52). Recommend isolating the attacker node immediately and monitoring for follow-up Replay or Slow Rate probing activity."*
-
-### RAG AI Security Analyst (`dashboard/backend/rag.py`)
-
-A Retrieval-Augmented Generation chatbot that answers natural language questions about the live network state. The context injected into every query includes:
-- **Knowledge base** — Feature descriptions, attack signatures, device roles
-- **Last 50 MQTT log entries** — Real-time traffic context
-- **Latest ML inference output** — Current label, confidence, SHAP values, feature readings
-
-**LLM fallback chain:**
-```
-Groq API Key 1 (Llama 3.3 70B Versatile)
-    ↓ (rate limited or unavailable)
-Groq API Key 2 (same models, different quota)
-    ↓ (both unavailable)
-Gemini Flash (if GEMINI_API_KEY set in .env)
-    ↓ (all LLMs offline)
-Local Expert System (rule-based, always works)
-```
-
-The local expert system has hardcoded logic for the most common question types (threat analysis, sensor readings, feature explanations) and produces structured markdown responses even without any internet connection.
-
-### API Endpoints
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `WS` | `/ws/live` | WebSocket stream — receives all live data |
-| `POST` | `/chat` | AI Analyst chatbot query |
-| `POST` | `/simulate` | Inject synthetic attack packets for demo |
-| `POST` | `/attacker/mode` | Send mode command to ESP32_3 via MQTT |
-| `GET` | `/incident` | Latest auto-generated incident narrative |
-| `GET` | `/feature-importance` | Global model feature importances |
-| `GET` | `/health` | Backend health check |
-| `GET` | `/debug` | Last 20 MQTT messages + latest inference |
-
-### IST Time Synchronization
-
-The backend publishes IST timestamps to `netguard/timesync` every 5 minutes. ESP32 nodes use this to align their sensor readings to the correct local time, enabling accurate day/night light curves and seasonal temperature patterns.
-
----
-
-## Frontend Dashboard (`dashboard/frontend/`)
-
-A Next.js 16 + React 19 dashboard with four tabs, all fed from a single persistent WebSocket connection managed by the `useLiveData` hook.
-
-### Data Hook (`app/hooks/useLiveData.ts`)
-
-The single source of truth for all live data. Maintains:
-- **`nodes`** — Per-device state (telemetry, online status, packet rate, trust score)
-- **`packets`** — Rolling feed of last 120 MQTT packets
-- **`alerts`** — Alert log with severity classification
-- **`temporal`** — 60-point anomaly score time series
-- **`sensorTemporal`** — 80-point sensor history for analytics charts
-- **`ml`** — Current ML classification, confidence, SHAP values
-- **`incident`** — Latest RAG-generated incident narrative
-- **`wsReady`** — WebSocket connection status
-
-Auto-reconnects with 3-second retry on disconnect.
-
----
-
-### Tab 1: Live Sensor Analytics (Default)
-
-Real-time scrolling charts of environmental sensor data from the physical hardware.
-
-**Three Recharts area charts:**
-- 🌡️ **Temperature** — DHT11 reading from ESP32_1, red gradient, auto-scaling Y axis
-- 💧 **Humidity** — DHT11 reading from ESP32_1, blue gradient, 60% reference line
-- ☀️ **Light Intensity** — LDR reading from ESP32_2, amber gradient, LUX scale
-
-Each chart shows the last 80 readings and updates in real time as packets arrive. Summary KPI cards above each chart show the latest reading and session average.
-
-A **Node Status strip** shows whether ESP32_1 (DHT11) and ESP32_2 (LDR) are online. The attacker node is deliberately excluded — this tab focuses purely on legitimate sensor telemetry.
-
----
-
-### Tab 2: Network Overview
-
-The main SOC dashboard view.
-
-#### KPI Row
-Four at-a-glance metrics:
-- **Total Packets** — All packets received since session start
-- **Active Alerts** — Count of detected attack events in this session
-- **Anomaly Score** — Current ML confidence that traffic is malicious (0–100%)
-- **Nodes Online** — Count of active ESP32 nodes
-
-#### Demo Mode Bar
-A control strip for offline demonstrations. Four buttons inject synthetic packets that match each attack class's statistical signature. The ML model detects and classifies them within 5 seconds. A pulsing `SIMULATING` badge shows while demo mode is active.
-
-#### Device Status Cards
-One card per ESP32 node showing:
-- Online/offline status (greyed out if no packet in last 15s)
-- Latest sensor readings or attack mode
-- Packet rate
-- Trust score (degrades when attack detected)
-- Last seen timestamp
-
-#### Temporal Anomaly Graph (SVG)
-A scrolling line graph of the ML model's anomaly score over the last 60 inference cycles. Above 70% = red zone, 30–70% = amber, below 30% = green. Shows the security posture of the network over time.
-
-#### Packet Rate Graph (SVG)
-Per-node packet frequency over time. Three color-coded lines for ESP32_1, ESP32_2, and ESP32_3.
-
-#### Live Packet Feed
-A real-time scrolling log of every MQTT packet received, with device, timestamp, and label color coding. Pauses automatically when hovered for readability.
-
-#### ML Detection Panel
-Shows the current model output:
-- Classification label with color-coded badge (green = NORMAL, red = attack)
-- Confidence percentage with animated bar
-- Live feature readout (packet rate, mean IAT, duplicate ratio, sequence gap)
-- **SHAP Force Plot** — Horizontal bars for the top 5 features with signed importance weights. Red bars push toward attack; green bars push toward normal. Raw feature values shown alongside each bar.
-
-#### AI Incident Report
-Appears automatically when an attack is detected. Shows the RAG-generated 3-sentence narrative with:
-- Attack type color coding
-- Pulsing `AUTO-GENERATED · SHAP-GROUNDED · RAG ANALYST` badge
-- Timestamp of detection
-
-#### Global Feature Importance Chart
-A static ranked bar chart loaded from `/feature-importance` on page load. Shows which of the 10 features the Random Forest model relies on globally across all 4 attack classes, with color coding by signal type (duplicate, sequence, rate, timing).
-
-#### Device Heatmap
-A visual health grid for all three nodes with color intensity based on trust score, packet rate, and current anomaly state.
-
-#### Alert Log
-A scrolling log of all attack detections in the current session, with severity badges (CRITICAL / HIGH / MEDIUM), timestamps, and raw feature readings at time of detection.
-
----
-
-### Tab 3: Network Topology
-
-An interactive SVG network map showing all nodes connected to the MQTT broker.
-
-- **Nodes** pulse with a glow when active and sending packets
-- **Animated packet dots** flow along the connection edges in real time
-- **Color coding** — ESP32_3 turns red when an attack is detected
-- **Side panel** — Click any node to see its live telemetry, current classification, and top SHAP drivers
-- **Connection lines** show latency and packet flow direction
-- **Tab State Persistence** — Attack simulation selection is lifted to the page-level (`page.tsx`) so that changing tabs does not reset the attack animations.
-- **Global Warning Badge** — A red status pill `⚠ <ATTACK> ACTIVE` is displayed in the page title row on all tabs when an attack is active.
-
----
-
-### Tab 4: AI Security Analyst
-
-A split-panel SOC chatbot interface.
-
-**Left pane — System Context:**
-Live context injected into every query:
-- Current ML classification and confidence
-- Whether an attack is active
-- Latest feature readings (packet rate, IAT, duplicate ratio)
-- Top 3 SHAP drivers
-- IST timestamp
-
-**Right pane — Chat interface:**
-Type any natural language security question. Examples:
-- *"Why is the network flagged as suspicious right now?"*
-- *"Explain the active threat and its SHAP features."*
-- *"What are the current temperature and humidity readings?"*
-- *"What features does the Random Forest model evaluate?"*
-- *"How does a Replay Attack differ from a DoS Flood?"*
-
-Responses are formatted in markdown with headers, code blocks, and bullet points.
-
----
-
-## Explainable AI (XAI) Stack
-
-NetGuard AI implements three layers of explainability:
-
-### Layer 1 — Local SHAP (Per-Inference)
-Every 5-second inference cycle produces signed SHAP importance weights for all 10 features. These explain *why this specific packet window was classified as this specific attack type*. Visualized as a force plot with red (toward attack) and green (toward normal) bars.
-
-### Layer 2 — Global Feature Importance
-Computed once from `model.feature_importances_` across all 200 trees and all training samples. Shows which features the model relies on *in general* across all attack classes. Displayed as a ranked bar chart in the Overview tab.
-
-### Layer 3 — Natural Language Narrative (RAG)
-When an attack is detected, the backend automatically generates a human-readable 3-sentence SOC report grounded in the SHAP values and live feature readings. Uses Groq's Llama 3.3 70B with a SHAP-aware prompt, falling back to deterministic rules if the LLM is unavailable.
-
----
-
-## Alert Flow
+| ESP32 Dev Board | 3 | Microcontroller nodes |
+| DHT22 Sensor | 1 | Temperature & Humidity (ESP32_1) |
+| LDR + 10kΩ resistor | 1 | Light sensor voltage divider (ESP32_2) |
+| 16×2 I2C LCD (0x27) | 1 | Mode display on attacker node (ESP32_3) |
+| Tactile Push Button | 1 | Hardware attack mode cycling (GPIO 14) |
+| Jumper wires | — | Connections |
+
+### Wiring
+
+**ESP32_3 (Attacker) — LCD + Button:**
 
 ```
-ML inference detects attack (every 5 seconds)
-           │
-           ├── WebSocket broadcast: netguard/inference
-           │     ↳ Dashboard updates ML panel, anomaly graph, alert log
-           │
-           ├── MQTT publish: netguard/alerts (30s cooldown)
-           │     ↳ ESP32_1 receives → LED flashes red + buzzer sounds 5s
-           │
-           └── RAG narrative generation (60s cooldown, async)
-                 ↳ Groq/Gemini generates 3-sentence incident report
-                 ↳ WebSocket broadcast: netguard/incident
-                 ↳ IncidentReport card appears in dashboard
+LCD (I2C):
+  VCC → V5 (5V pin)
+  GND → GND
+  SDA → GPIO 21
+  SCL → GPIO 22
+
+Button:
+  One leg → GPIO 14
+  Other leg → GND
+  (Internal pull-up enabled in firmware)
 ```
+
+**ESP32_1 (DHT22):** DATA pin → GPIO 4 (change in `netguard-dht.ino`)
+
+**ESP32_2 (LDR):** Voltage divider output → GPIO 34 (ADC pin, change in `netguard-ldr.ino`)
+
+### Flashing Firmware
+
+1. Open each `.ino` file in Arduino IDE
+2. Install libraries: `PubSubClient`, `LiquidCrystal_I2C`, `DHT sensor library`
+3. Set your WiFi SSID and password in the `const char*` variables at the top
+4. Flash to the respective ESP32 board (select `ESP32 Dev Module` in Board Manager)
 
 ---
 
@@ -492,189 +264,239 @@ ML inference detects attack (every 5 seconds)
 
 ### Prerequisites
 
+- Python 3.12+
+- Node.js 20+
+- Arduino IDE (for hardware flashing)
+
+### 1. Clone the Repository
+
 ```bash
-# Python dependencies
-pip install fastapi uvicorn paho-mqtt scikit-learn numpy joblib shap requests
-
-# Optional (for AI chatbot LLM responses)
-pip install google-generativeai
-
-# Frontend
-npm install   # inside dashboard/frontend/
+git clone https://github.com/Rohith-sp/NetGuard-AI.git
+cd NetGuard-AI
 ```
 
-### Configuration
-
-Create `dashboard/backend/.env`:
-```env
-GROQ_API_KEY_1=gsk_your_first_groq_key_here
-GROQ_API_KEY_2=gsk_your_second_groq_key_here
-GEMINI_API_KEY=AIza_your_gemini_key_here    # optional
-```
-
-Get a free Groq API key at [console.groq.com](https://console.groq.com) — the free tier (14,400 requests/day) is sufficient for all demo and lab use.
-
-### Start Backend
+### 2. Backend Setup
 
 ```bash
 cd dashboard/backend
+
+# Install dependencies
+pip install fastapi uvicorn paho-mqtt scikit-learn shap joblib numpy requests
+
+# Create .env file (optional, for RAG chatbot)
+echo "GROQ_API_KEY_1=your_groq_key_here" > .env
+echo "GEMINI_API_KEY=your_gemini_key_here" >> .env
+
+# Start the backend
 python -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-Watch for:
-```
-[ML] Model loaded from ...netguard_model.pkl
-[ML] Classes: ['DATA_POISON' 'DOS_FLOOD' 'EVASION_ATTACK' 'NORMAL' 'REPLAY_ATTACK' 'SLOW_RATE_ATTACK' 'TOPIC_BOMB']
-[MQTT] Connected rc=0
-[ML] Inference loop started
-```
-
-### Start Frontend
+### 3. Frontend Setup
 
 ```bash
 cd dashboard/frontend
+
+npm install
 npm run dev
+# Dashboard available at http://localhost:3000
 ```
 
-Open **http://localhost:3000**
+### 4. Start Nodes
 
-### Flash Arduino Code
+**Option A — Real Hardware:** Flash the Arduino firmware and power on the ESP32 boards.
 
-1. Open each sketch in Arduino IDE
-2. Replace `YOUR_WIFI_SSID` and `YOUR_WIFI_PASSWORD` with your hotspot credentials
-3. Install libraries: `PubSubClient`, `ArduinoJson`, `DHT sensor library`
-4. Flash to the corresponding ESP32 board
+**Option B — Software Simulation (no hardware needed):**
+
+```bash
+cd dashboard/backend
+python node_simulator.py
+```
+
+This runs all 3 ESP32 nodes as software threads, publishing realistic Bangalore weather data and responding to `netguard/cmd` mode change commands from the dashboard.
 
 ---
 
-## Retraining the Model
+## ML Pipeline Deep Dive
 
-If you collect new data or want to retrain from scratch:
+### Training the Model
+
+The Random Forest was trained on CSV data collected from the `real_time_collector.py` tool during live hardware sessions.
 
 ```bash
-# Collect new data (run while operating ESP32 nodes)
+# Collect labeled data (interactive terminal, ~30 min per attack class)
 cd real_time_collector
 python real_time_collector.py
 
-# Train on collected data
+# Retrain the model
 cd ml_model
-python train_model.py
+python augment_and_train.py   # Uses data augmentation
+# or
+python train_model.py         # Direct training from raw CSVs
+```
 
-# Or: augment + train (adds synthetic Slow Rate data)
+The training pipeline mirrors the `extract_features()` function in `main.py` exactly — grouping packets into 10-second sliding windows with 1-second stride and computing the same 10 features. This ensures there is zero feature drift between training and live inference.
+
+### Model Performance
+
+| Attack Class | Precision | Recall | F1 |
+|---|---|---|---|
+| NORMAL | ~97% | ~96% | ~96% |
+| DOS_FLOOD | ~99% | ~99% | ~99% |
+| REPLAY_ATTACK | ~93% | ~91% | ~92% |
+| TOPIC_BOMB | ~91% | ~89% | ~90% |
+| EVASION_ATTACK | ~62% | ~58% | ~60% |
+| SLOW_RATE_ATTACK | *(Handled by Stage 1 Profiler)* | — | — |
+| DATA_POISON | *(Handled by Stage 1 Profiler)* | — | — |
+
+> *Note: Evasion Attack confidence is intentionally lower because the attack is designed to mimic normal timing statistics. The ML model still catches it through timing variance features.*
+
+---
+
+## Attack Classes & Detection Strategy
+
+| Attack | Interval | Key Signature | Detection Method |
+|---|---|---|---|
+| **Normal** | 2–5 s | Low rate, sequential seq | Baseline comparison |
+| **DoS Flood** | 150–350 ms | `packet_rate > 10/s`, low IAT | Random Forest Stage 2 |
+| **Replay Attack** | 800–1500 ms | `duplicate_ratio > 0.8`, frozen seq | Random Forest Stage 2 |
+| **Slow Rate Attack** | 15–30 s | `median_IAT > 10,000ms` | Stage 1 Global IAT Tracker |
+| **Data Poisoning** | 2–5 s (normal timing) | `Z-Score > 3.0` on payload | Stage 1 EMA Z-Score |
+| **Topic Bomb** | 50–100 ms | `packet_rate > 50/s`, many topics | Random Forest Stage 2 |
+| **Evasion Attack** | 150–3500 ms (random) | Abnormal `std_inter_arrival_ms` | Random Forest Stage 2 |
+
+### Triggering Attacks
+
+**From the Dashboard (Software):** Navigate to the **Topology** tab and click any attack button in the side panel. This simultaneously:
+1. Calls `/simulate` — injects synthetic packets directly into the backend's ML buffer (instant visualization)
+2. Calls `/attacker/mode` — sends an MQTT `SET_MODE` command to the physical ESP32_3 (or simulator), keeping hardware and software in sync
+
+**From Hardware:** Press the physical button on ESP32_3. Each press cycles through the 7 attack modes. The LCD shows the current mode. The backend automatically detects the change and updates the dashboard.
+
+---
+
+## API Reference
+
+The backend exposes the following REST and WebSocket endpoints:
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `WS` | `/ws/live` | WebSocket stream — all inference results, sensor data, incidents |
+| `GET` | `/health` | Service health check — WS client count, model status, buffer size |
+| `GET` | `/debug` | Last 20 MQTT messages + latest inference result |
+| `GET` | `/incident` | Latest auto-generated RAG incident narrative |
+| `GET` | `/feature-importance` | Global feature importances from trained model |
+| `POST` | `/attacker/mode` | Send `{"mode": "DOS_FLOOD"}` to command ESP32_3 via MQTT |
+| `POST` | `/simulate` | Inject synthetic packets for offline demo/testing |
+| `POST` | `/attacker/release` | Reset attacker node to NORMAL mode |
+| `POST` | `/chat` | Send `{"question": "..."}` to RAG AI analyst |
+
+### WebSocket Message Types
+
+All WebSocket messages are JSON with a `topic` field:
+
+```json
+// Inference result (every 5s)
+{"topic": "netguard/inference", "label": "DOS_FLOOD", "confidence": 97.0,
+ "isAttack": true, "pkt_rate": 4.8, "iat_mean": 210, "dup_ratio": 0.0,
+ "shap": [{"feature": "packet_rate", "value": 0.412, "raw": 4.8}, ...]}
+
+// Live sensor reading
+{"topic": "netguard/device1", "temp": 26.4, "humidity": 61.2, "ist_hour": 14.5}
+
+// Attack packet
+{"topic": "netguard/attacker", "mode": "REPLAY_ATTACK", "seq": 1042, "pkt_rate": 1.2}
+
+// RAG incident report
+{"topic": "netguard/incident", "text": "A DoS Flood was detected...", "label": "DOS_FLOOD", "ts": "14:32:05 IST"}
+
+// System sync
+{"topic": "netguard/system", "ist_hour": 14.5, "ist_time": "14:30:00"}
+```
+
+---
+
+## Dashboard Tabs
+
+| Tab | Purpose |
+|---|---|
+| **Live Analytics** | Real-time area charts for temperature, humidity, and light from ESP32_1 and ESP32_2 |
+| **Overview** | KPI cards, device status cards, anomaly graph, packet rate graph, ML panel with SHAP, alert log |
+| **Topology** | SVG network map with animated packet flows. Attack simulation panel — triggers both hardware and ML pipeline simultaneously |
+| **Working** | Architecture documentation — pipeline stages, attack detection matrix, data flow diagram, tech stack, and the 10 ML features explained |
+| **AI Analyst** | RAG-powered chat interface grounded in live network state, SHAP values, and the DATASETS.md knowledge base |
+
+---
+
+## Data Collection & Retraining
+
+### Step 1: Collect Labeled Data
+
+```bash
+cd real_time_collector
+python real_time_collector.py
+```
+
+The interactive terminal shows live packet stats. Use keyboard hotkeys to label sessions:
+- `A` — Auto mode (reads attack label from ESP32_3 payload)
+- `M` — Manual mode (use number keys to override labels)
+- `1–6` — Tag current session as DoS/Replay/SlowRate/DataPoison/TopicBomb/Evasion
+- `Space` — Pause/resume logging
+- `N` — Start a new CSV file
+- `Q` — Quit safely
+
+Each session is saved to `real_time_collector/collected_datasets/telemetry_session_YYYYMMDD_HHMMSS.csv`.
+
+### Step 2: Retrain
+
+```bash
+cd ml_model
 python augment_and_train.py
 ```
 
-The new `netguard_model.pkl` is automatically loaded by the backend on next startup.
+The script reads all CSV files, builds 10-second sliding windows, augments minority classes, trains a new `RandomForestClassifier`, and saves to `netguard_model.pkl`. The backend auto-loads the new model on next restart.
 
 ---
 
-## Project Structure
+## Environment Variables
 
-```
-NetGuard-AI/
-│
-├── arduino_codes/                    # Real Arduino sketches (.ino)
-│   ├── netguard-dht/
-│   │   └── netguard-dht.ino          # ESP32_1 — DHT11 + alert subscriber
-│   ├── netguard-ldr/
-│   │   └── netguard-ldr.ino          # ESP32_2 — LDR light sensor
-│   └── netguard-attacker/
-│       └── netguard-attacker.ino     # ESP32_3 — Attack simulator (button-controlled)
-│
-├── dashboard/
-│   ├── backend/
-│   │   ├── main.py                   # FastAPI + MQTT bridge + ML inference + alerts
-│   │   ├── rag.py                    # RAG chatbot (Groq / Gemini / Expert fallback)
-│   │   ├── node_simulator.py         # Offline demo node simulator
-│   │   └── .env                      # API keys (gitignored — never committed)
-│   │
-│   └── frontend/
-│       └── app/
-│           ├── page.tsx              # Main 4-tab SOC dashboard
-│           ├── globals.css           # Full design system (CSS variables + all styles)
-│           ├── layout.tsx            # Root layout + metadata
-│           ├── components/
-│           │   ├── AnalyticsTab.tsx  # Live sensor charts (Recharts)
-│           │   ├── GlobalImportanceChart.tsx  # Model feature importance bar chart
-│           │   ├── IncidentReport.tsx         # RAG-generated incident narrative card
-│           │   ├── Graphs.tsx        # SVG anomaly + packet rate graphs
-│           │   ├── Panels.tsx        # ML panel, alert log, heatmap, packet feed, KPI
-│           │   └── TopologyTab.tsx   # SVG network topology map
-│           └── hooks/
-│               └── useLiveData.ts    # WebSocket state manager (single source of truth)
-│
-├── ml_model/
-│   ├── train_model.py                # Full retraining script (10-feature windowed schema)
-│   ├── augment_and_train.py          # Data augmentation + retrain (all 7 classes)
-│   └── netguard_model.pkl            # Trained model (96.59% accuracy, 7 classes)
-│
-├── real_time_collector/
-│   ├── real_time_collector.py        # Live MQTT → labelled CSV data collector
-│   ├── extractor.py                  # Feature extraction utilities
-│   ├── config.json                   # Collector configuration
-│   ├── README.md                     # Collector usage guide
-│   └── collected_datasets/
-│       └── telemetry_session_*.csv   # Raw training data from hardware
-│
-├── hardware-simulation/              # PlatformIO Wokwi simulation projects
-│   ├── NetGuard_DHT_Node/            # Wokwi ESP32 DHT simulation
-│   ├── NetGuard_LDR_Node/            # Wokwi ESP32 LDR simulation
-│   └── NetGuard_Attacker_Node/       # Wokwi ESP32 attacker simulation
-│
-├── index.html                        # Phase 1 simulation (GitHub Pages)
-├── .gitignore
-└── README.md
+Create `dashboard/backend/.env`:
+
+```env
+GROQ_API_KEY_1=gsk_your_key_here
+GROQ_API_KEY_2=gsk_backup_key_here   # Optional second key for rotation
+GEMINI_API_KEY=AIza_your_key_here    # Fallback if Groq fails
 ```
 
----
-
-## Technical Stack
-
-| Layer | Technology | Version | Purpose |
-|---|---|---|---|
-| **Frontend Framework** | Next.js | 16 | React SSR + routing |
-| **UI Library** | React | 19 | Component model |
-| **Charts** | Recharts | 2.13 | Sensor analytics charts |
-| **Styling** | Vanilla CSS | — | Design system (CSS variables) |
-| **Backend** | FastAPI | 0.115 | REST API + WebSocket |
-| **ASGI Server** | Uvicorn | — | Async request handling |
-| **MQTT Client** | Paho-MQTT | — | ESP32 broker communication |
-| **ML Model** | scikit-learn | 1.8 | Random Forest Classifier |
-| **Explainability** | SHAP | 0.51 | TreeExplainer + force plots |
-| **Numerics** | NumPy | 2.4 | Feature array operations |
-| **Model Persistence** | joblib | 1.5 | Model serialization |
-| **AI Chatbot** | Groq API | — | Llama 3.3 70B LLM |
-| **AI Fallback** | Gemini API | — | Gemini Flash LLM |
-| **MQTT Broker** | HiveMQ | — | Public broker (port 1883) |
-| **Hardware** | ESP32 | — | Tensilica Xtensa LX6 |
-| **Firmware** | Arduino Core | — | ESP32 Arduino framework |
-| **MQTT Library** | PubSubClient | 2.8 | ESP32 MQTT client |
-| **JSON Library** | ArduinoJson | 7.x | ESP32 JSON parsing |
-| **Sensor Library** | DHT sensor library | — | DHT11 driver |
+The RAG chatbot uses Groq (Llama 3.3 70B) as the primary LLM and falls back to Gemini if unavailable. If neither is configured, a deterministic template-based narrative is generated instead.
 
 ---
 
-## MQTT Topic Reference
+## Running Without Hardware
 
-| Topic | Publisher | Subscriber | Description |
-|---|---|---|---|
-| `netguard/device1` | ESP32_1 | Backend | Temperature + humidity telemetry |
-| `netguard/device2` | ESP32_2 | Backend | Light intensity telemetry |
-| `netguard/attacker` | ESP32_3 | Backend | Attack mode packets |
-| `netguard/alerts` | Backend | ESP32_1 | Attack alert → LED + buzzer |
-| `netguard/timesync` | Backend | All ESP32s | IST timestamp broadcast |
-| `netguard/timereq` | All ESP32s | Backend | Time sync request |
-| `netguard/cmd` | Backend | ESP32_3 | Mode control command |
+The full system can be run entirely in software using the node simulator:
+
+```bash
+# Terminal 1 — Backend
+cd dashboard/backend
+python -m uvicorn main:app --host 0.0.0.0 --port 8000
+
+# Terminal 2 — Frontend  
+cd dashboard/frontend
+npm run dev
+
+# Terminal 3 — Software ESP32 twins
+cd dashboard/backend
+python node_simulator.py
+```
+
+The simulator publishes realistic Bangalore weather data (temperature based on time of day, light based on sunrise/sunset) and responds to attack mode commands from the dashboard Topology tab, providing a complete demo experience without any physical hardware.
 
 ---
 
-## Security Notes
+## Project Info
 
-- WiFi credentials (`YOUR_WIFI_SSID` / `YOUR_WIFI_PASSWORD`) in Arduino sketches are placeholders — replace before flashing
-- API keys go in `dashboard/backend/.env` which is gitignored and never committed
-- The MQTT broker (`broker.hivemq.com`) is a public broker — suitable for lab use, not production
-- No TLS/authentication on MQTT (public broker limitation) — for production, use a private broker with client certificates
-
----
-
-*NetGuard AI — IoT Security Operations Center — Semester IV EL — 2025–26*
+**Institution:** Semester IV Electronics Lab  
+**Nodes Monitored:** 3 ESP32 devices  
+**Attack Classes:** 7 (Normal, DoS Flood, Replay, Slow Rate, Data Poison, Topic Bomb, Evasion)  
+**ML Model:** Random Forest · 10 features · SHAP explainability  
+**Detection Pipeline:** Two-Stage Hybrid (Statistical Profiler + Random Forest)

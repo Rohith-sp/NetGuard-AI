@@ -7,9 +7,9 @@ export type SimKey = "NORMAL" | "DOS_FLOOD" | "REPLAY_ATTACK" | "SLOW_RATE_ATTAC
 interface Props {
   n1: NodeData; n2: NodeData; n3: NodeData;
   ml: MLState; wsReady: boolean;
+  simulate?: (mode: string) => Promise<void>;
   triggerAttack?: (mode: string) => Promise<void>;
   simKey: SimKey;
-  setSimKey: (k: SimKey) => void;
 }
 
 // ── Fix 2: expanded viewBox for breathing room ─────────────────────────────
@@ -114,7 +114,7 @@ const ANIM_COLOR: Record<string, string> = {
   evasion: "#facc15",   // yellow — camouflaged evasion
 };
 
-export default function TopologyTab({ n1, n2, n3, ml: _realMl, wsReady, triggerAttack, simKey, setSimKey }: Props) {
+export default function TopologyTab({ n1, n2, n3, ml: _realMl, wsReady, simulate, triggerAttack, simKey }: Props) {
   const simCfg   = SIM_MODES.find(m => m.key === simKey)!;
   const isAttack = simCfg.isAttack;
   const pred     = simCfg.pred;
@@ -411,7 +411,7 @@ export default function TopologyTab({ n1, n2, n3, ml: _realMl, wsReady, triggerA
                 <button key={m.key}
                   className={`topo-sim-btn ${m.cls}${simKey === m.key ? " active" : ""}`}
                   onClick={() => {
-                    setSimKey(m.key);
+                    simulate?.(m.key);
                     triggerAttack?.(m.key);
                   }}
                   title={m.desc}
@@ -422,7 +422,7 @@ export default function TopologyTab({ n1, n2, n3, ml: _realMl, wsReady, triggerA
             </div>
             <div className="topo-sim-desc">{simCfg.desc}</div>
             {/* Fix 8: 11px, tertiary color, not italic */}
-            <div className="topo-sim-note">Visual only — does not affect Overview</div>
+            <div className="topo-sim-note">Injects synthetic traffic into the live ML pipeline</div>
           </div>
 
           <div className="topo-panel-divider"/>

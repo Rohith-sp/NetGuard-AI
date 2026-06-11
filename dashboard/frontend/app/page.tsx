@@ -23,10 +23,8 @@ function renderMarkdown(text: string) {
 
 export default function Page() {
   const { nodes, packets, alerts, temporal, sensorTemporal, ml, incident, totalPkts, wsReady, triggerAttack, simulate } = useLiveData();
-  const [tab, setTab] = useState<"overview" | "analytics" | "topology" | "chat">("analytics");
-  const [simKey, setSimKey] = useState<SimKey>("NORMAL");
-  const [demoMode, setDemoMode] = useState("NORMAL");
-  const [demoActive, setDemoActive] = useState(false);
+  const [tab, setTab] = useState<"overview" | "analytics" | "topology" | "chat" | "working">("analytics");
+  const simKey = (nodes.esp32_3?.mode as SimKey) || "NORMAL";
   const [clock, setClock]         = useState("—");
   const [chatMsgs, setChatMsgs]   = useState([{ from: "AI", text: "NetGuard AI online. Ask me about the current network state." }]);
   const [chatInput, setChatInput] = useState("");
@@ -98,6 +96,7 @@ export default function Page() {
           <span className={`nav-item ${tab === "analytics" ? "active" : ""}`} onClick={() => setTab("analytics")}>Live Analytics</span>
           <span className={`nav-item ${tab === "overview"  ? "active" : ""}`} onClick={() => setTab("overview")}>Overview</span>
           <span className={`nav-item ${tab === "topology"  ? "active" : ""}`} onClick={() => setTab("topology")}>Topology</span>
+          <span className={`nav-item ${tab === "working"   ? "active" : ""}`} onClick={() => setTab("working")}>Working</span>
           <span className={`nav-item ${tab === "chat"      ? "active" : ""}`} onClick={() => setTab("chat")}>AI Analyst</span>
         </nav>
         <div className="header-right">
@@ -111,8 +110,8 @@ export default function Page() {
         <div className="page-title-row">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
             <div>
-              <div className="page-title">{tab === "analytics" ? "Live Sensor Analytics" : tab === "overview" ? "Network Overview" : tab === "topology" ? "Network Topology" : "AI Security Analyst"}</div>
-              <div className="page-subtitle">{tab === "analytics" ? "Real-time temperature, humidity & light readings from your IoT nodes" : "Semester IV · 3 nodes monitored"}</div>
+              <div className="page-title">{tab === "analytics" ? "Live Sensor Analytics" : tab === "overview" ? "Network Overview" : tab === "topology" ? "Network Topology" : tab === "working" ? "System Architecture" : "AI Security Analyst"}</div>
+              <div className="page-subtitle">{tab === "analytics" ? "Real-time temperature, humidity & light readings from your IoT nodes" : tab === "working" ? "End-to-end hybrid pipeline — how NetGuard AI detects intrusions" : "Semester IV · 3 nodes monitored"}</div>
             </div>
             {simKey !== "NORMAL" && (
               <span className="demo-active-pill" style={{ background: "var(--red-bg)", color: "var(--red)", borderColor: "var(--red)", fontSize: "11px", padding: "4px 10px" }}>
@@ -126,36 +125,6 @@ export default function Page() {
         {tab === "overview" && (
           <>
             <KpiRow totalPkts={totalPkts} alertCount={alerts.length} anomaly={latestAnomaly} nodesOnline={nodesOnline} />
-
-            {/* Demo Mode Panel */}
-            <div className="demo-bar">
-              <div className="demo-bar-label">
-                <span className="demo-icon">⚡</span>
-                <span>Demo Mode</span>
-                {demoActive && <span className="demo-active-pill">SIMULATING</span>}
-              </div>
-              <div className="demo-bar-btns">
-                {(["NORMAL","DOS_FLOOD","REPLAY_ATTACK","SLOW_RATE_ATTACK","DATA_POISON","TOPIC_BOMB","EVASION_ATTACK"] as const).map(m => {
-                  const colors: Record<string,string> = { NORMAL:"var(--green)", DOS_FLOOD:"var(--red)", REPLAY_ATTACK:"var(--amber)", SLOW_RATE_ATTACK:"var(--blue)", DATA_POISON:"var(--purple)", TOPIC_BOMB:"var(--pink)", EVASION_ATTACK:"var(--cyan)" };
-                  const labels: Record<string,string> = { NORMAL:"Normal", DOS_FLOOD:"DoS Flood", REPLAY_ATTACK:"Replay", SLOW_RATE_ATTACK:"Slow Rate", DATA_POISON:"Data Poison", TOPIC_BOMB:"Topic Bomb", EVASION_ATTACK:"Evasion" };
-                  const active = demoMode === m && demoActive;
-                  return (
-                    <button key={m}
-                      className="demo-btn"
-                      style={{ borderColor: active ? colors[m] : "var(--border)", color: active ? colors[m] : "var(--text-2)", background: active ? `${colors[m]}18` : "var(--surface2)" }}
-                      onClick={() => { setDemoMode(m); setDemoActive(true); simulate(m); }}>
-                      {labels[m]}
-                    </button>
-                  );
-                })}
-                {demoActive && (
-                  <button className="demo-btn" style={{ borderColor: "var(--border)", color: "var(--text-3)" }}
-                    onClick={() => setDemoActive(false)}>
-                    ✕ Clear
-                  </button>
-                )}
-              </div>
-            </div>
 
             <div className="section-divider">Device Status</div>
             <NodeRow n1={nodes.esp32_1} n2={nodes.esp32_2} n3={nodes.esp32_3} ml={ml} />
@@ -213,14 +182,160 @@ export default function Page() {
             <TopologyTab
               n1={nodes.esp32_1} n2={nodes.esp32_2} n3={nodes.esp32_3}
               ml={ml} wsReady={wsReady}
+              simulate={simulate}
               triggerAttack={triggerAttack}
               simKey={simKey}
-              setSimKey={setSimKey}
             />
           </div>
         )}
+        {/* ── WORKING TAB ───────────────────────────────────────────────── */}
+        {tab === "working" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 20, marginBottom: 20 }}>
 
+            {/* Pipeline Overview */}
+            <div className="card">
+              <div className="card-header">
+                <span className="card-title">Two-Stage Hybrid Detection Pipeline</span>
+                <span className="card-tag blue">ARCHITECTURE</span>
+              </div>
+              <div className="card-body" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.7, margin: 0 }}>
+                  NetGuard AI uses a <strong>Two-Stage Hybrid Pipeline</strong> to overcome the limitations of purely flow-based ML. Every 5 seconds, incoming MQTT traffic is passed through both stages in order.
+                </p>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                  {[
+                    { stage: "Stage 1", name: "Statistical Profiler", color: "var(--amber)", desc: "Unsupervised EMA Z-Score anomaly detection on payload values. Catches Data Poisoning & Slow Rate attacks that fool flow-based ML.", tags: ["Z-Score > 3.0", "EMA Baseline", "IAT Tracking"] },
+                    { stage: "Stage 2", name: "Random Forest ML", color: "var(--blue)", desc: "7-class Random Forest classifier trained on 10 flow features extracted from a sliding 10-second packet window. Catches DoS, Replay, Evasion & Topic Bomb.", tags: ["10 Features", "SHAP Values", "7 Classes"] },
+                  ].map(s => (
+                    <div key={s.stage} style={{ background: "var(--surface2)", border: `1px solid color-mix(in srgb, ${s.color} 30%, var(--border))`, borderRadius: "var(--radius)", padding: "16px 18px" }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: s.color, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 }}>{s.stage}</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>{s.name}</div>
+                      <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6, marginBottom: 12 }}>{s.desc}</div>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        {s.tags.map(t => <span key={t} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 20, background: `color-mix(in srgb, ${s.color} 10%, var(--surface))`, color: s.color, border: `1px solid color-mix(in srgb, ${s.color} 25%, transparent)` }}>{t}</span>)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
 
+            {/* Attack Detection Matrix */}
+            <div className="card">
+              <div className="card-header">
+                <span className="card-title">Attack Detection Strategy Matrix</span>
+                <span className="card-tag green">7 ATTACK CLASSES</span>
+              </div>
+              <div className="card-body">
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                        {["Attack Class", "Detection Stage", "Key Indicator", "ML Limitation", "Solution"].map(h => (
+                          <th key={h} style={{ padding: "8px 12px", textAlign: "left", color: "var(--text-3)", fontWeight: 600, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        { cls: "DOS Flood",         stage: "ML Stage 2",     color: "var(--red)",    ind: "packet_rate > 10/s",          lim: "None — detects easily",         sol: "Random Forest (97% conf.)" },
+                        { cls: "Replay Attack",     stage: "ML Stage 2",     color: "var(--amber)",  ind: "duplicate_ratio > 0.8",        lim: "None — detects easily",         sol: "Random Forest (91% conf.)" },
+                        { cls: "Topic Bomb",        stage: "ML Stage 2",     color: "var(--purple)", ind: "packet_rate > 50/s",           lim: "None — detects easily",         sol: "Random Forest (89% conf.)" },
+                        { cls: "Evasion Attack",    stage: "ML Stage 2",     color: "var(--cyan)",   ind: "std_inter_arrival_ms spike",   lim: "Low confidence (~58%)",         sol: "RF on timing variance" },
+                        { cls: "Slow Rate Attack",  stage: "Profiler Stage 1",color: "var(--blue)",  ind: "median IAT > 10,000ms",        lim: "10s window goes empty (blind)", sol: "Global packet IAT tracker" },
+                        { cls: "Data Poisoning",    stage: "Profiler Stage 1",color: "var(--green)", ind: "Z-Score > 3.0 on payload",     lim: "Normal timing — invisible",     sol: "EMA Z-Score on temp/payload" },
+                      ].map(r => (
+                        <tr key={r.cls} style={{ borderBottom: "1px solid var(--border)" }}>
+                          <td style={{ padding: "10px 12px" }}><span style={{ fontFamily: "var(--mono)", fontSize: 11, padding: "2px 7px", borderRadius: 4, background: `color-mix(in srgb, ${r.color} 12%, var(--surface2))`, color: r.color, border: `1px solid color-mix(in srgb, ${r.color} 25%, transparent)` }}>{r.cls}</span></td>
+                          <td style={{ padding: "10px 12px", color: "var(--text-2)", fontWeight: 500 }}>{r.stage}</td>
+                          <td style={{ padding: "10px 12px", fontFamily: "var(--mono)", color: "var(--text-3)", fontSize: 11 }}>{r.ind}</td>
+                          <td style={{ padding: "10px 12px", color: "var(--text-3)" }}>{r.lim}</td>
+                          <td style={{ padding: "10px 12px", color: "var(--green)", fontWeight: 500 }}>{r.sol}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* Data Flow */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+              <div className="card">
+                <div className="card-header"><span className="card-title">Data Flow</span><span className="card-tag blue">END-TO-END</span></div>
+                <div className="card-body" style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                  {[
+                    { step: "1", label: "ESP32 Nodes", desc: "DHT22 / LDR / Attacker publish MQTT packets to broker.hivemq.com", color: "var(--green)" },
+                    { step: "2", label: "HiveMQ Broker", desc: "Public cloud MQTT broker — routes netguard/# wildcard to all subscribers", color: "var(--blue)" },
+                    { step: "3", label: "FastAPI Backend", desc: "Subscribes via Paho, buffers packets in a 60-second deque, runs pipeline every 5s", color: "var(--purple)" },
+                    { step: "4", label: "Statistical Profiler", desc: "EMA Z-Score on payloads, global IAT tracking — catches Data Poison & Slow Rate", color: "var(--amber)" },
+                    { step: "5", label: "Random Forest ML", desc: "10-feature vector fed to Random Forest → SHAP explanation generated in thread pool", color: "var(--blue)" },
+                    { step: "6", label: "WebSocket Broadcast", desc: "Inference result + SHAP values pushed to all connected browsers via /ws/live", color: "var(--cyan)" },
+                    { step: "7", label: "Next.js Dashboard", desc: "useLiveData() hook parses WS messages → React state → live UI updates", color: "var(--green)" },
+                  ].map((s, i, arr) => (
+                    <div key={s.step} style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                        <div style={{ width: 28, height: 28, borderRadius: "50%", background: `color-mix(in srgb, ${s.color} 15%, var(--surface2))`, border: `2px solid ${s.color}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: s.color, flexShrink: 0 }}>{s.step}</div>
+                        {i < arr.length - 1 && <div style={{ width: 2, height: 24, background: "var(--border)" }} />}
+                      </div>
+                      <div style={{ paddingTop: 4, paddingBottom: i < arr.length - 1 ? 0 : 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", marginBottom: 2 }}>{s.label}</div>
+                        <div style={{ fontSize: 11, color: "var(--text-3)", lineHeight: 1.5, marginBottom: i < arr.length - 1 ? 12 : 0 }}>{s.desc}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="card">
+                <div className="card-header"><span className="card-title">Tech Stack</span><span className="card-tag green">COMPONENTS</span></div>
+                <div className="card-body" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {[
+                    { layer: "Hardware", items: "ESP32 × 3 · DHT22 sensor · LDR sensor · 16×2 I2C LCD · Push button (GPIO 14)" },
+                    { layer: "Firmware", items: "Arduino IDE · PubSubClient · LiquidCrystal_I2C · WiFiClient" },
+                    { layer: "Protocol", items: "MQTT over TCP · HiveMQ public broker · netguard/# wildcard topics" },
+                    { layer: "Backend", items: "Python 3.12 · FastAPI · Uvicorn · Paho MQTT · scikit-learn · SHAP · Groq API · Gemini API" },
+                    { layer: "ML Model", items: "Random Forest (7-class) · 10 flow features · SHAP TreeExplainer · asyncio.to_thread offload" },
+                    { layer: "Frontend", items: "Next.js 15 · React 19 · TypeScript · Recharts · Vanilla CSS · DM Sans / JetBrains Mono" },
+                    { layer: "Dev Tools", items: "node_simulator.py · real_time_collector.py · augment_and_train.py · .env secrets" },
+                  ].map(r => (
+                    <div key={r.layer} style={{ display: "flex", gap: 10, borderBottom: "1px solid var(--border)", paddingBottom: 10 }}>
+                      <span style={{ fontSize: 10, fontWeight: 600, color: "var(--blue)", textTransform: "uppercase", letterSpacing: 0.5, minWidth: 70, paddingTop: 1 }}>{r.layer}</span>
+                      <span style={{ fontSize: 11.5, color: "var(--text-2)", lineHeight: 1.6 }}>{r.items}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Feature Vector */}
+            <div className="card">
+              <div className="card-header"><span className="card-title">ML Feature Vector (10 Features)</span><span className="card-tag blue">RANDOM FOREST INPUT</span></div>
+              <div className="card-body">
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10 }}>
+                  {[
+                    { f: "packet_count", desc: "Total packets in 10s window" },
+                    { f: "packet_rate", desc: "Packets per second" },
+                    { f: "mean_inter_arrival_ms", desc: "Avg time between packets" },
+                    { f: "std_inter_arrival_ms", desc: "Timing jitter / variance" },
+                    { f: "min_inter_arrival_ms", desc: "Fastest consecutive packet" },
+                    { f: "max_inter_arrival_ms", desc: "Slowest consecutive packet" },
+                    { f: "duplicate_ratio", desc: "Fraction of duplicate seqs" },
+                    { f: "seq_increment_mean", desc: "Avg sequence step size" },
+                    { f: "seq_increment_std", desc: "Seq step variance" },
+                    { f: "unique_modes", desc: "Distinct MQTT payload modes" },
+                  ].map(ft => (
+                    <div key={ft.f} style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: "10px 12px" }}>
+                      <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--blue)", fontWeight: 600, marginBottom: 4 }}>{ft.f}</div>
+                      <div style={{ fontSize: 11, color: "var(--text-3)", lineHeight: 1.4 }}>{ft.desc}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+          </div>
+        )}
 
         {/* ── AI ANALYST TAB ────────────────────────────────────────────── */}
         {tab === "chat" && (

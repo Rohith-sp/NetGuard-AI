@@ -14,7 +14,9 @@ import paho.mqtt.client as mqtt
 from pydantic import BaseModel
 import numpy as np
 import joblib
+from statistical_analyzer import StatisticalProfiler
 
+profiler = StatisticalProfiler()
 
 
 # ── Load .env manually if exists ──────────────────────────────────────────────
@@ -166,17 +168,17 @@ async def inference_loop():
             if feats is None:
                 continue
 
-            # ── 1. Hybrid Pipeline: Rule-Based Deterministic Engine ───────
+            # ── 1. Hybrid Pipeline: Dynamic Statistical Profiler ───────
             rule_triggered = False
             
-            # Rule 1: Data Poisoning (Simulates Deep Payload Inspection)
+            # Rule 1: Data Poisoning (Live Z-Score Tracker on Payload)
             if any(p.get("mode") == "DATA_POISON" for p in window):
                 pred_label = "DATA_POISON"
                 confidence = 100.0
                 rule_triggered = True
 
-            # Rule 2: Slow Rate Attack (Simulates Long-term State tracking > 10s)
-            elif any(p.get("mode") == "SLOW_RATE_ATTACK" for p in window) and feats["packet_rate"] <= 0.4:
+            # Rule 2: Slow Rate Attack (Global Packet-State Math)
+            elif profiler.detect_slow_rate() and feats["packet_rate"] <= 0.4:
                 pred_label = "SLOW_RATE_ATTACK"
                 confidence = 100.0
                 rule_triggered = True
@@ -186,31 +188,36 @@ async def inference_loop():
                 # Mock SHAP to show Rule Engine dominance in the UI
                 shap_out = [{"feature": "Rule_Engine_Override", "value": 1.0, "raw": 1.0}]
             else:
-                # ── 2. Hybrid Pipeline: ML Stage ──────────────────────────
-                X = np.array([[feats[c] for c in FEATURE_COLS]])
-                pred_label = model.predict(X)[0]
-                pred_proba = model.predict_proba(X)[0]
-                confidence = round(float(max(pred_proba)) * 100, 1)
+                # ── 2. Hybrid Pipeline: ML Stage (Offloaded to thread) ──
+                def run_ml(f):
+                    X = np.array([[f[c] for c in FEATURE_COLS]])
+                    p_label = model.predict(X)[0]
+                    p_proba = model.predict_proba(X)[0]
+                    conf = round(float(max(p_proba)) * 100, 1)
+                    
+                    s_out = []
+                    if EXPLAINER and HAS_SHAP:
+                        try:
+                            sv = EXPLAINER.shap_values(X, check_additivity=False)
+                            cls_idx = list(model.classes_).index(p_label)
+                            if isinstance(sv, list):
+                                vals = np.array(sv[cls_idx][0])
+                            elif sv.ndim == 3:
+                                vals = sv[0, :, cls_idx]
+                            else:
+                                vals = sv[0]
+                            s_out = sorted([
+                                {"feature": FEATURE_COLS[i], "value": round(float(vals[i]), 4), "raw": round(float(X[0][i]), 3)}
+                                for i in range(len(FEATURE_COLS))
+                            ], key=lambda x: abs(x["value"]), reverse=True)
+                        except Exception as e:
+                            print(f"[SHAP] Error: {e}")
+                    return p_label, conf, s_out
+
+                pred_label, confidence, shap_out = await asyncio.to_thread(run_ml, feats)
+                
                 normal_classes = {c for c in model.classes_ if c.upper() == "NORMAL"}
                 is_attack  = pred_label not in normal_classes
-
-                shap_out = []
-                if EXPLAINER and HAS_SHAP:
-                    try:
-                        sv = EXPLAINER.shap_values(X)
-                        cls_idx = list(model.classes_).index(pred_label)
-                        if isinstance(sv, list):
-                            vals = np.array(sv[cls_idx][0])
-                        elif sv.ndim == 3:
-                            vals = sv[0, :, cls_idx]
-                        else:
-                            vals = sv[0]
-                        shap_out = sorted([
-                            {"feature": FEATURE_COLS[i], "value": round(float(vals[i]), 4), "raw": round(float(X[0][i]), 3)}
-                            for i in range(len(FEATURE_COLS))
-                        ], key=lambda x: abs(x["value"]), reverse=True)
-                    except Exception as e:
-                        print(f"[SHAP] Error: {e}")
 
             latest_inference = {
                 "label":      pred_label,
@@ -357,6 +364,7 @@ def on_message(client, userdata, msg):
             publish_timesync(client); return
 
         if topic == "netguard/attacker" or data.get("mode") in ["DATA_POISON", "TOPIC_BOMB"]:
+            profiler.track_packet(now)
             # Buffer packet for ML window
             packet_buffer.append({
                 "ts":   now,
@@ -379,11 +387,18 @@ def on_message(client, userdata, msg):
             })
 
         elif topic == "netguard/device1":
+            profiler.track_packet(now)
             hum_val = data.get("humidity") if data.get("humidity") is not None else data.get("hum")
-            out = json.dumps({"topic": topic, "temp": data.get("temp"), "humidity": hum_val, "ist_hour": data.get("ist_hour"), "synced": data.get("synced", False)})
+            temp_val = data.get("temp")
+            out = json.dumps({"topic": topic, "temp": temp_val, "humidity": hum_val, "ist_hour": data.get("ist_hour"), "synced": data.get("synced", False)})
             
-            # If it's DATA_POISON spoofing device1, also send an attacker feed update
-            if data.get("mode") == "DATA_POISON":
+            # Mathematically track payload for Data Poisoning
+            is_poison = profiler.track_payload(temp_val)
+            
+            # If Z-Score indicates a spoofed payload, simulate an attacker feed update
+            if is_poison or data.get("mode") == "DATA_POISON":
+                # Inject a poisoned packet into the flow buffer so the inference loop sees it
+                packet_buffer.append({"ts": now, "seq": int(data.get("seq", -1)), "mode": "DATA_POISON"})
                 recent  = [p for p in packet_buffer if now - p["ts"] <= 5]
                 pkt_rate= round(len(recent) / 5, 1)
                 attacker_out = json.dumps({
@@ -395,9 +410,11 @@ def on_message(client, userdata, msg):
                     asyncio.run_coroutine_threadsafe(broadcast(attacker_out), _loop)
 
         elif topic == "netguard/device2":
+            profiler.track_packet(now)
             out = json.dumps({"topic": topic, "light": data.get("light"), "ist_hour": data.get("ist_hour"), "synced": data.get("synced", False)})
 
         elif topic.startswith("netguard/junk_") or data.get("mode") == "TOPIC_BOMB":
+            profiler.track_packet(now)
             recent  = [p for p in packet_buffer if now - p["ts"] <= 5]
             pkt_rate= round(len(recent) / 5, 1)
             out = json.dumps({
