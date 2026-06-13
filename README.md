@@ -1,6 +1,6 @@
 # NetGuard AI
 
-> Real-time IoT Network Intrusion Detection System — a 3-node ESP32 network monitored by a Two-Stage Hybrid AI pipeline with a live SOC dashboard and explainable ML.
+> Real-time IoT Network Intrusion Detection System — a 3-node ESP32 network monitored by a Two-Stage Hybrid AI pipeline with a live SOC dashboard, explainable ML, and an interactive 50-node simulated network using D3.js force-directed layouts.
 
 ## Table of Contents
 
@@ -46,6 +46,8 @@ What makes it notable is the combination of physical hardware, a cloud MQTT brok
 | Broker | HiveMQ (public cloud) | Stateless MQTT broker — `broker.hivemq.com:1883` |
 | Backend | Python 3.12, FastAPI, Uvicorn | REST + WebSocket inference server |
 | MQTT Client | Paho MQTT | Backend-side broker subscription |
+| NetworkX | networkx | Hierarchical topology generation for the 50-node simulator |
+| D3.js | d3 (v7) | Force-directed 50-node network topology visualization |
 | ML | scikit-learn RandomForestClassifier | 7-class attack classification |
 | Explainability | SHAP TreeExplainer | Per-inference SHAP force values |
 | Unsupervised | Custom EMA + Z-Score | Payload anomaly detection (no retraining needed) |
@@ -61,8 +63,7 @@ What makes it notable is the combination of physical hardware, a cloud MQTT brok
 
 ## Architecture Overview
 
-```mermaid
-flowchart TD
+    flowchart TD
     classDef hw fill:#0f2d1a,stroke:#4ade80,color:#4ade80,rx:8
     classDef broker fill:#1a1230,stroke:#818cf8,color:#a5b4fc
     classDef backend fill:#1a1230,stroke:#8b5cf6,color:#c4b5fd
@@ -78,75 +79,77 @@ flowchart TD
         ESP3["ESP32_3\nAttacker Node\n📡 netguard/attacker\n{mode, seq, manual}\n+ 16×2 LCD + GPIO14 Button"]:::hw
     end
 
-    HIVEMQ[("☁ HiveMQ\nPublic MQTT Broker\nbroker.hivemq.com:1883\ntopic wildcard: netguard/#")]:::broker
+    HIVEMQ[("☁ HiveMQ\nPublic MQTT Broker\nbroker.hivemq.com:1883\ntopics: netguard/#, netguard_50node/#")]:::broker
 
-    ESP1 -->|"MQTT JSON publish"| HIVEMQ
-    ESP2 -->|"MQTT JSON publish"| HIVEMQ
-    ESP3 -->|"MQTT JSON publish"| HIVEMQ
+    ESP1 -->|"MQTT JSON"| HIVEMQ
+    ESP2 -->|"MQTT JSON"| HIVEMQ
+    ESP3 -->|"MQTT JSON"| HIVEMQ
     HIVEMQ -->|"SET_MODE / RELEASE cmd"| ESP3
 
     subgraph BE["⚙ Backend — dashboard/backend/"]
         direction TB
-        PAHO["Paho MQTT\nSubscriber\non_message()"]:::backend
+        PAHO["Paho MQTT client 1\n(Real telemetry)\nSub: netguard/#"]:::backend
+        PAHOSIM["Paho MQTT client 2\n(Simulation)\nSub: netguard_50node/#"]:::backend
         BUF["60s Sliding Deque\npacket_buffer\nin-memory"]:::backend
-        TSYNC["IST Time Sync\ntimesync_loop()\nevery 5 min"]:::backend
+        TSYNC["IST Time Sync\ntimesync_loop()"]:::backend
 
-        subgraph PIPELINE["🧠 Two-Stage Detection Pipeline — every 5 seconds"]
+        subgraph PIPELINE["🧠 Two-Stage Detection Pipeline"]
             direction LR
             PROFILER["Stage 1\nStatistical Profiler\nstatistical_analyzer.py\n\nEMA Z-Score → Data Poison\nMedian IAT → Slow Rate"]:::profiler
-            RF["Stage 2\nRandom Forest\nnetguard_model.pkl\n7 classes · 10 features\n+ SHAP TreeExplainer\n(asyncio.to_thread)"]:::ml
+            RF["Stage 2\nRandom Forest\nnetguard_model.pkl\n7 classes\n+ SHAP TreeExplainer"]:::ml
         end
 
-        WSBROADCAST["WebSocket Engine\n/ws/live\nbroadcast() coroutine"]:::backend
-        RAG["RAG Analyst\nrag.py\nGroq LLM primary\nGemini fallback\nExpert System fallback"]:::external
-        ALERTMQTT["MQTT Alert Publisher\nnetguard/alerts\n30s cooldown"]:::backend
+        WSBROADCAST["WebSocket Engine\n/ws/live\nbroadcast()"]:::backend
+        RAG["RAG Analyst\nrag.py\nGroq primary\nGemini fallback"]:::external
+        ALERTMQTT["MQTT Alert Publisher\nnetguard/alerts"]:::backend
     end
 
-    HIVEMQ -->|"on_message() callback"| PAHO
-    PAHO -->|"appends {ts, seq, mode}"| BUF
-    PAHO -->|"temp value for Z-Score"| PROFILER
-    BUF -->|"10s window snapshot\nevery 5s"| PROFILER
-    PROFILER -->|"Stage 1 override\n100% confidence"| WSBROADCAST
-    PROFILER -->|"Stage 1 pass-through"| RF
-    RF -->|"label + confidence\n+ SHAP values"| WSBROADCAST
-    WSBROADCAST -->|"is_attack=True\n→ ATTACK_DETECTED"| ALERTMQTT
+    HIVEMQ -->|"on_message() real"| PAHO
+    HIVEMQ -->|"on_message_sim()"| PAHOSIM
+    PAHOSIM -->|"bypass pipeline\nforward direct"| WSBROADCAST
+    PAHO -->|"appends packets"| BUF
+    PAHO -->|"temp for Z-Score"| PROFILER
+    BUF -->|"10s window snapshot"| PROFILER
+    PROFILER -->|"override"| WSBROADCAST
+    PROFILER -->|"pass-through"| RF
+    RF -->|"label + conf\n+ SHAP"| WSBROADCAST
+    WSBROADCAST -->|"is_attack=True"| ALERTMQTT
     ALERTMQTT -->|"MQTT JSON"| HIVEMQ
-    RF -->|"attack detected\n60s cooldown"| RAG
-    RAG -->|"incident narrative\nnetguard/incident"| WSBROADCAST
+    RF -->|"attack detected"| RAG
+    RAG -->|"incident narrative"| WSBROADCAST
 
     subgraph FE["🖥 Frontend — dashboard/frontend/"]
         direction TB
         HOOK["useLiveData.ts\nWebSocket hook\nSingle source of truth"]:::frontend
-        PAGE["page.tsx\nTab router\n5 tabs"]:::frontend
+        PAGE["page.tsx\nTab router\n7 tabs"]:::frontend
         subgraph TABS["Dashboard Tabs"]
             direction LR
             T1["Live Analytics\nRecharts area charts"]:::frontend
-            T2["Overview\nKPI · NodeRow · MLPanel\nSHAP · AlertLog"]:::frontend
-            T3["Topology\nSVG network map\nAttack sim buttons"]:::frontend
-            T4["Working\nPipeline docs\nFeature matrix"]:::frontend
+            T2["Overview\nKPI cards & SHAP"]:::frontend
+            T3["Topology\n3-node SVG animation"]:::frontend
+            T4["Working\nPipeline details"]:::frontend
             T5["AI Analyst\nRAG chatbot"]:::frontend
+            T6["50 Nodes Graph\nD3.js force simulation"]:::frontend
+            T7["Evaluation\nBenchmarks & Toggles"]:::frontend
         end
     end
 
-    WSBROADCAST -->|"ws://localhost:8000/ws/live\nJSON {topic, ...}"| HOOK
-    HOOK -->|"React state updates"| PAGE
-    PAGE --> T1
-    PAGE --> T2
-    PAGE --> T3
-    PAGE --> T4
-    PAGE --> T5
-    T3 -->|"POST /simulate\nPOST /attacker/mode"| BE
+    WSBROADCAST -->|"ws://localhost:8000/ws/live"| HOOK
+    HOOK -->|"React state"| PAGE
+    PAGE --> T1 & T2 & T3 & T4 & T5 & T6 & T7
+    T3 -->|"POST /simulate"| BE
     T5 -->|"POST /chat"| RAG
+    T6 -->|"POST /simulator/attack"| BE
 
-    subgraph DEVTOOLS["🛠 Dev & Training Tools"]
-        SIM["node_simulator.py\nSoftware ESP32 twins\n3 threads"]:::devtool
-        COL["real_time_collector.py\nInteractive CSV labeler\nWindows msvcrt"]:::devtool
-        TRAIN["augment_and_train.py\ntrain_model.py\nRF retraining scripts"]:::devtool
+    subgraph DEVTOOLS["🛠 Dev & Simulation Tools"]
+        SIM["node_simulator.py\n3-node software twins"]:::devtool
+        SIM50["large_scale_simulator.py\n50-node NetworkX simulation\nPub: netguard_50node/*"]:::devtool
+        COL["real_time_collector.py\nInteractive CSV labeler"]:::devtool
     end
 
     SIM -->|"MQTT publish"| HIVEMQ
-    COL -->|"subscribes to netguard/#"| HIVEMQ
-    TRAIN -->|"reads collected_datasets/*.csv\nwrites netguard_model.pkl"| RF
+    SIM50 -->|"MQTT publish"| HIVEMQ
+    COL -->|"subscribes"| HIVEMQ collected_datasets/*.csv\nwrites netguard_model.pkl"| RF
 ```
 
 ---
@@ -233,6 +236,28 @@ flowchart TD
   - Temperature uses `26.5 + 6.5 * sin((hour - 5.5) * π / 12)` — a sinusoidal model calibrated to Bangalore's real diurnal temperature cycle
   - Humidity and light use corresponding sinusoidal models with day/night transitions at 06:10 and 18:25 IST
   - The attacker thread maintains a `manual_lock` flag — once an attack mode is set, it stays until a `RELEASE` command, preventing auto-reversion during demos
+
+---
+
+### Large-Scale 50-Node Simulator — `large_scale_simulator.py`
+- **Location:** `dashboard/backend/large_scale_simulator.py`
+- **Purpose:** Simulates a realistic clustered network topology with 51 nodes and 50 edges, publishing real-time telemetry and state changes over isolated MQTT topics.
+- **Exposes:** Topic `netguard_50node/topology` (graph schema) and `netguard_50node/status` (per-node state matrix); subscribes to `netguard_50node/cmd` for attack commands.
+- **Key Logic:**
+  - Builds a hierarchical topology using NetworkX containing 1 Gateway, 3 Cluster Heads, and 47 client nodes (DHT, LDR, and PIR types).
+  - Triggers 6 distinct attack vectors targeting specific individual nodes. Runs an event-driven loop that dynamically adjusts individual publication rates and payloads on target nodes based on active commands.
+  - Isolated namespace `netguard_50node/` prevents traffic noise from polluting the live 3-node physical network metrics.
+
+---
+
+### 50-Node D3 Graph Tab — `Network50Tab.tsx`
+- **Location:** `dashboard/frontend/app/components/Network50Tab.tsx`
+- **Purpose:** Renders a high-fidelity force-directed graph of the 50-node network structure with real-time state synchronization.
+- **Depends On:** D3.js (v7) simulation, custom `Icons.tsx` library
+- **Key Logic:**
+  - Prevents infinite reloading loops by separating layout generation (keyed by structural signature `topoKey`) from dynamic state changes.
+  - Nodes transition their colors and filters in-place via D3 selectors without tearing down or rebuilding the canvas.
+  - Integrates direct attack controls enabling users to launch or release any of the 6 major simulated threats on target nodes.
 
 ---
 
@@ -540,16 +565,20 @@ Dashboard available at **http://localhost:3000**
 ### 4b. Software Simulation (No Hardware)
 
 ```bash
-# In a separate terminal
+# In a separate terminal - run the 3-node ESP32 twins simulator
 cd dashboard/backend
 python node_simulator.py
+
+# In a separate terminal - run the 50-node large-scale simulator
+cd dashboard/backend
+python large_scale_simulator.py
 ```
 
-Output confirms all three nodes running:
+Output confirms the simulations running successfully:
 ```
-[DHT] Running...
-[LDR] Running...
-[ATK] Running — waiting for trigger from dashboard...
+[Simulator] Starting event-driven simulation loop...
+[Topology] Published network map with 51 nodes and 50 edges.
+[MQTT] Simulator connected with result code Success
 ```
 
 ### 5. Verify
@@ -574,11 +603,12 @@ NetGuard-AI/
 │   │   ├── statistical_analyzer.py    # Stage 1 — EMA Z-Score + IAT profiler (no ML)
 │   │   ├── rag.py                     # RAG analyst — Groq/Gemini LLM + expert system
 │   │   ├── node_simulator.py          # Software ESP32 twins (3 threaded nodes)
+│   │   ├── large_scale_simulator.py   # Large-scale 50-node IoT simulator
 │   │   └── .env                       # API keys (gitignored)
 │   │
 │   └── frontend/                      # Next.js 15 SOC dashboard
 │       ├── app/
-│       │   ├── page.tsx               # Root component — tab router (5 tabs)
+│       │   ├── page.tsx               # Root component — tab router (7 tabs)
 │       │   ├── layout.tsx             # HTML shell — Google Fonts, metadata
 │       │   ├── globals.css            # Full CSS design system (tokens, components)
 │       │   ├── hooks/
@@ -589,7 +619,10 @@ NetGuard-AI/
 │       │       ├── AnalyticsTab.tsx   # Recharts area charts — temp, humidity, light
 │       │       ├── Graphs.tsx         # AnomalyGraph, PktRateGraph (time-series)
 │       │       ├── IncidentReport.tsx # RAG incident narrative display card
-│       │       └── GlobalImportanceChart.tsx # Model feature importance chart
+│       │       ├── GlobalImportanceChart.tsx # Model feature importance chart
+│       │       ├── EvaluationTab.tsx  # Benchmarks, confusion matrices & simulator toggle
+│       │       ├── Network50Tab.tsx   # D3 zoomable force-directed 50-node topology canvas
+│       │       └── Icons.tsx          # Custom premium SVG icon library
 │       ├── package.json
 │       └── next.config.ts
 │
