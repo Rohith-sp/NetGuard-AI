@@ -600,3 +600,128 @@ body {
   font-family: var(--sans);
 }
 .demo-btn:hover { filter: brightness(0.95); }
+
+/* ── EVALUATION TAB ─────────────────────────────────── */
+.eval-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.metrics-comparison {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.metric-box {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+.metric-header {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--text-3);
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+.metric-value-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+.metric-val {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 600;
+}
+.metric-delta {
+  font-size: 11px;
+  font-weight: 500;
+}
+.metric-delta.positive { color: var(--green); }
+.metric-delta.negative { color: var(--red); }
+
+/* Confusion Matrix */
+.matrix-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 10px;
+}
+.matrix-grid-wrap {
+  display: grid;
+  grid-template-columns: 80px repeat(7, 1fr);
+  gap: 3px;
+  width: 100%;
+}
+.matrix-label-y {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 8px;
+  text-align: right;
+  white-space: nowrap;
+}
+.matrix-label-x {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-2);
+  text-align: center;
+  padding-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.matrix-cell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 3px;
+  color: var(--text);
+  border: 0.5px solid var(--border);
+  transition: all 0.2s;
+  cursor: default;
+}
+.matrix-cell:hover {
+  filter: brightness(0.9);
+}
+
+/* Concept Drift Gauge */
+.drift-gauge-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 0;
+}
+.drift-gauge-value {
+  font-family: var(--mono);
+  font-size: 32px;
+  font-weight: 700;
+  margin-top: -10px;
+}
+.drift-gauge-label {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 4px;
+}
+.drift-status-pill {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+  margin-top: 8px;
+}
+.drift-status-pill.normal { background: var(--green-bg); color: var(--green); border: 0.5px solid var(--green-mid); }
+.drift-status-pill.warning { background: var(--amber-bg); color: var(--amber); border: 0.5px solid var(--amber-mid); }
+.drift-status-pill.critical { background: var(--red-bg); color: var(--red); border: 0.5px solid var(--red-mid); }
+

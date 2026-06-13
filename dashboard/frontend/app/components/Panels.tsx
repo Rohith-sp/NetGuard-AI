@@ -1,5 +1,6 @@
 "use client";
 import type { NodeData, PacketEntry, AlertEntry, MLState } from "../hooks/useLiveData";
+import { PackageIcon, WarningIcon, ChartIcon, SignalIcon, TempIcon, LightBulbIcon, CameraIcon, CheckIcon, LightIcon, MoonIcon } from "./Icons";
 
 const ATTACKS = ["DOS_FLOOD", "REPLAY_ATTACK", "SLOW_RATE_ATTACK", "DATA_POISON", "TOPIC_BOMB", "EVASION_ATTACK"];
 
@@ -11,7 +12,7 @@ function labelClass(l: string) {
 }
 // Translate raw mode to a neutral public-facing label
 function publicLabel(l: string, device: string): string {
-  if (device === "netguard/attacker") {
+  if (device === "netguard_rohit_77/attacker") {
     if (l === "DOS_FLOOD")         return "HIGH-FREQ";
     if (l === "REPLAY_ATTACK")     return "REPEAT-TX";
     if (l === "SLOW_RATE_ATTACK")  return "LOW-FREQ";
@@ -24,7 +25,7 @@ function publicLabel(l: string, device: string): string {
 }
 // Translate device topic to public device name
 function publicDevice(d: string): string {
-  if (d === "netguard/attacker") return "netguard/device3";
+  if (d === "netguard_rohit_77/attacker") return "netguard_rohit_77/device3";
   return d;
 }
 
@@ -33,22 +34,24 @@ export function KpiRow({ totalPkts, alertCount, anomaly, nodesOnline }: { totalP
   return (
     <div className="kpi-row">
       <div className="kpi-card">
-        <div className="kpi-header"><span className="kpi-label">Total Packets</span><div className="kpi-icon" style={{ background: "#ecfdf5" }}>📦</div></div>
+        <div className="kpi-header"><span className="kpi-label">Total Packets</span><div className="kpi-icon" style={{ background: "#ecfdf5", display: "flex", alignItems: "center", justifyContent: "center" }}><PackageIcon width={18} height={18} color="var(--green)" /></div></div>
         <div className="kpi-value green">{totalPkts.toLocaleString()}</div>
         <div className="kpi-meta">packets captured this session</div>
       </div>
       <div className="kpi-card">
-        <div className="kpi-header"><span className="kpi-label">Alerts Fired</span><div className="kpi-icon" style={{ background: "#fef2f2" }}>🔴</div></div>
+        <div className="kpi-header"><span className="kpi-label">Alerts Fired</span><div className="kpi-icon" style={{ background: "#fef2f2", display: "flex", alignItems: "center", justifyContent: "center" }}><WarningIcon width={16} height={16} color="var(--red)" /></div></div>
         <div className="kpi-value red">{alertCount}</div>
         <div className="kpi-meta">intrusion events detected</div>
       </div>
       <div className="kpi-card">
-        <div className="kpi-header"><span className="kpi-label">Anomaly Score</span><div className="kpi-icon" style={{ background: "#fffbeb" }}>📊</div></div>
+        <div className="kpi-header"><span className="kpi-label">Anomaly Score</span><div className="kpi-icon" style={{ background: "#fffbeb", display: "flex", alignItems: "center", justifyContent: "center" }}><ChartIcon width={18} height={18} color="var(--amber)" /></div></div>
         <div className="kpi-value amber">{anomaly.toFixed(0)}%</div>
-        <div className="kpi-meta">{anomaly > 50 ? "⚠ above threat threshold" : "within normal baseline"}</div>
+        <div className="kpi-meta" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          {anomaly > 50 ? <><WarningIcon width={10} height={10} color="var(--amber)" /> above threat threshold</> : "within normal baseline"}
+        </div>
       </div>
       <div className="kpi-card">
-        <div className="kpi-header"><span className="kpi-label">Nodes Online</span><div className="kpi-icon" style={{ background: "#eff6ff" }}>🟢</div></div>
+        <div className="kpi-header"><span className="kpi-label">Nodes Online</span><div className="kpi-icon" style={{ background: "#eff6ff", display: "flex", alignItems: "center", justifyContent: "center" }}><SignalIcon width={18} height={18} color="var(--blue)" /></div></div>
         <div className="kpi-value">{nodesOnline}/3</div>
         <div className="kpi-meta">ESP32 devices connected</div>
       </div>
@@ -64,7 +67,7 @@ export function NodeRow({ n1, n2, n3, ml }: { n1: NodeData; n2: NodeData; n3: No
       {/* DHT Node */}
       <div className="node-card">
         <div className="node-header">
-          <div><div className="node-id">ESP32_1 · DHT22</div><div className="node-ip">netguard/device1</div></div>
+          <div><div className="node-id">ESP32_1 · DHT22</div><div className="node-ip">netguard_rohit_77/device1</div></div>
           <div className="node-status">
             <div className={`status-dot ${n1.online ? "green" : "offline"}`} />
             <span style={{ color: n1.online ? "var(--green)" : "var(--text-3)", fontWeight: 500, fontSize: 12 }}>{n1.online ? "Normal" : "Offline"}</span>
@@ -85,7 +88,7 @@ export function NodeRow({ n1, n2, n3, ml }: { n1: NodeData; n2: NodeData; n3: No
       {/* LDR Node */}
       <div className="node-card">
         <div className="node-header">
-          <div><div className="node-id">ESP32_2 · LDR</div><div className="node-ip">netguard/device2</div></div>
+          <div><div className="node-id">ESP32_2 · LDR</div><div className="node-ip">netguard_rohit_77/device2</div></div>
           <div className="node-status">
             <div className={`status-dot ${n2.online ? "green" : "offline"}`} />
             <span style={{ color: n2.online ? "var(--green)" : "var(--text-3)", fontWeight: 500, fontSize: 12 }}>{n2.online ? "Normal" : "Offline"}</span>
@@ -93,7 +96,7 @@ export function NodeRow({ n1, n2, n3, ml }: { n1: NodeData; n2: NodeData; n3: No
         </div>
         <div className="node-body">
           <div className="node-stat-row"><span className="node-stat-label">Light level</span><span className="node-stat-value">{n2.light != null ? `${n2.light} LUX` : "—"}</span></div>
-          <div className="node-stat-row"><span className="node-stat-label">Cycle phase</span><span className="node-stat-value">{(n2.light ?? 0) > 500 ? "Daytime ☀" : "Nighttime 🌙"}</span></div>
+          <div className="node-stat-row"><span className="node-stat-label">Cycle phase</span><span className="node-stat-value" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>{(n2.light ?? 0) > 500 ? <>Daytime <LightIcon width={12} height={12} color="var(--amber)" /></> : <>Nighttime <MoonIcon width={12} height={12} color="var(--blue)" /></>}</span></div>
           <div className="node-stat-row"><span className="node-stat-label">Packet rate</span><span className="node-stat-value">{n2.pktRate} pkt/s</span></div>
           <div className="trust-bar-wrap">
             <span className="trust-bar-label">Trust</span>
@@ -106,7 +109,7 @@ export function NodeRow({ n1, n2, n3, ml }: { n1: NodeData; n2: NodeData; n3: No
       {/* PIR Motion Node (disguised) */}
       <div className="node-card">
         <div className="node-header">
-          <div><div className="node-id">ESP32_3 · PIR Motion</div><div className="node-ip">netguard/device3</div></div>
+          <div><div className="node-id">ESP32_3 · PIR Motion</div><div className="node-ip">netguard_rohit_77/device3</div></div>
           <div className="node-status">
             <div className={`status-dot ${n3.online ? "green" : "offline"}`} />
             <span style={{ color: n3.online ? "var(--green)" : "var(--text-3)", fontWeight: 500, fontSize: 12 }}>
@@ -133,26 +136,52 @@ export function NodeRow({ n1, n2, n3, ml }: { n1: NodeData; n2: NodeData; n3: No
 export function MLPanel({ ml }: { ml: MLState }) {
   const top5   = (ml.shap ?? []).slice(0, 5);
   const maxAbs = top5.length ? Math.max(...top5.map(s => Math.abs(s.value)), 0.001) : 1;
+  const hasDrift = ml.baseline && ml.label !== ml.baseline.label;
 
   return (
     <div className="card">
       <div className="card-header">
-        <span className="card-title">Network Analyzer</span>
+        <span className="card-title">Network Analyzer (Ablation Mode)</span>
         <span className={`card-tag ${ml.isAttack ? "red" : "green"}`}>
           {ml.label === "AWAITING" ? "AWAITING" : ml.isAttack ? "THREAT" : "NORMAL"}
         </span>
       </div>
-      <div className="card-body">
-        {/* Classification result */}
-        <div className={`ml-class-display ${ml.isAttack ? "threat" : ""}`}>
-          <div>
-            <div className="ml-class-name">{ml.label}</div>
-            <div className="ml-conf-pct">{ml.confidence}% confidence</div>
-            <div className="ml-conf-bar-wrap" style={{ width: 140, marginTop: 6 }}>
-              <div className="ml-conf-bar" style={{ width: `${ml.confidence}%`, background: ml.isAttack ? "var(--red)" : "var(--green)" }} />
+      <div className="card-body" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        
+        {/* Comparison Grid */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          {/* Hybrid Pipeline */}
+          <div className={`ml-class-display ${ml.isAttack ? "threat" : ""}`} style={{ padding: 12, minHeight: 90 }}>
+            <div>
+              <div style={{ fontSize: 9, textTransform: "uppercase", color: "var(--text-3)", letterSpacing: 0.5, marginBottom: 4 }}>Two-Stage Hybrid</div>
+              <div className="ml-class-name" style={{ fontSize: 14 }}>{ml.label}</div>
+              <div className="ml-conf-pct">{ml.confidence}% confidence</div>
+              <div className="ml-conf-bar-wrap" style={{ width: "100%", marginTop: 6 }}>
+                <div className="ml-conf-bar" style={{ width: `${ml.confidence}%`, background: ml.isAttack ? "var(--red)" : "var(--green)" }} />
+              </div>
+            </div>
+          </div>
+
+          {/* Baseline Model */}
+          <div className={`ml-class-display ${ml.baseline?.isAttack ? "threat" : ""}`} style={{ padding: 12, minHeight: 90, background: "var(--surface2)", border: "1px solid var(--border)" }}>
+            <div>
+              <div style={{ fontSize: 9, textTransform: "uppercase", color: "var(--text-3)", letterSpacing: 0.5, marginBottom: 4 }}>Baseline ML Model</div>
+              <div className="ml-class-name" style={{ fontSize: 14 }}>{ml.baseline ? ml.baseline.label : "AWAITING"}</div>
+              <div className="ml-conf-pct">{ml.baseline ? `${ml.baseline.confidence}% confidence` : "—"}</div>
+              <div className="ml-conf-bar-wrap" style={{ width: "100%", marginTop: 6 }}>
+                <div className="ml-conf-bar" style={{ width: `${ml.baseline?.confidence ?? 0}%`, background: ml.baseline?.isAttack ? "var(--red)" : "var(--green)" }} />
+              </div>
             </div>
           </div>
         </div>
+
+        {/* Ablation Study Banner */}
+        {hasDrift && (
+          <div style={{ background: "rgba(59, 130, 246, 0.1)", border: "1px solid rgba(59, 130, 246, 0.2)", borderRadius: "var(--radius)", padding: "10px 12px", fontSize: 11, color: "var(--text-2)", lineHeight: 1.5, display: "flex", gap: 8, alignItems: "flex-start" }}>
+            <LightBulbIcon width={14} height={14} color="var(--blue)" style={{ flexShrink: 0, marginTop: 2 }} />
+            <span><strong>Ablation Insight:</strong> Standard ML model predicted <strong>{ml.baseline?.label}</strong>. NetGuard's Stage 1 statistical profiler successfully intercepted this attack.</span>
+          </div>
+        )}
 
         {/* SHAP Force Plot */}
         {top5.length > 0 ? (
@@ -195,13 +224,13 @@ export function MLPanel({ ml }: { ml: MLState }) {
 // ── Device Heatmap ────────────────────────────────────────────────────────────
 export function HeatmapPanel({ n1, n2, n3, ml }: { n1: NodeData; n2: NodeData; n3: NodeData; ml: MLState }) {
   const cells = [
-    { id: "ESP32_1", icon: "🌡", label: "DHT22 Sensor", online: n1.online, trust: n1.trust,
+    { id: "ESP32_1", icon: <TempIcon width={20} height={20} color="var(--red)" />, label: "DHT22 Sensor", online: n1.online, trust: n1.trust,
       metric: `${n1.temp?.toFixed(1) ?? "—"}°C`, sub: `Humidity ${n1.humidity?.toFixed(0) ?? "—"}%`,
       threat: n1.trust < 40, warn: n1.trust < 70 },
-    { id: "ESP32_2", icon: "💡", label: "LDR Sensor", online: n2.online, trust: n2.trust,
-      metric: `${n2.light ?? "—"} LUX`, sub: (n2.light ?? 0) > 500 ? "Daytime ☀" : "Nighttime 🌙",
+    { id: "ESP32_2", icon: <LightBulbIcon width={20} height={20} color="var(--amber)" />, label: "LDR Sensor", online: n2.online, trust: n2.trust,
+      metric: `${n2.light ?? "—"} LUX`, sub: (n2.light ?? 0) > 500 ? "Daytime" : "Nighttime",
       threat: n2.trust < 40, warn: n2.trust < 70 },
-    { id: "ESP32_3", icon: "📷", label: "PIR Motion", online: n3.online, trust: n3.trust,
+    { id: "ESP32_3", icon: <CameraIcon width={20} height={20} color="var(--purple)" />, label: "PIR Motion", online: n3.online, trust: n3.trust,
       metric: `${n3.pktRate} pkt/s`, sub: ml.isAttack ? ml.label.replace(/_/g, " ") : "Monitoring",
       threat: ml.isAttack || n3.trust < 40, warn: n3.trust < 70 },
   ];
@@ -244,7 +273,7 @@ export function AlertLog({ alerts }: { alerts: AlertEntry[] }) {
       </div>
       <div className="alert-list">
         {alerts.length === 0
-          ? <div style={{ padding: "24px 16px", textAlign: "center", color: "var(--text-3)", fontSize: 13 }}>No alerts — network is clean ✓</div>
+          ? <div style={{ padding: "24px 16px", textAlign: "center", color: "var(--text-3)", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>No alerts — network is clean <CheckIcon width={14} height={14} color="var(--green)" /></div>
           : alerts.map(a => (
             <div key={a.id} className="alert-item">
               <span className={`alert-sev ${sevClass(a.severity)}`}>{a.severity}</span>

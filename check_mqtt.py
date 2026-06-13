@@ -4,10 +4,10 @@ import sys
 def on_connect(client, userdata, flags, rc, *args):
     if rc == 0:
         print("Connected to broker.hivemq.com successfully!")
-        print("Subscribed to 'netguard/#' topic tree.")
+        print("Subscribed to 'netguard_rohit_77/#' topic tree.")
         print("Listening for MQTT packets. Press [Ctrl+C] to stop...")
         print("="*80)
-        client.subscribe("netguard/#")
+        client.subscribe("netguard_rohit_77/#")
     else:
         print(f"Connection failed with code {rc}")
         sys.exit(1)

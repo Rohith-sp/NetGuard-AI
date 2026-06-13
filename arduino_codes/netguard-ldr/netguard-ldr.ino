@@ -100,7 +100,7 @@ void loop() {
                      ",\"seq\":" + String(seqNumber) + "}";
 
     // Publish to the device2 topic
-    client.publish("netguard/device2", payload.c_str());
+    client.publish("netguard_rohit_77/device2", payload.c_str());
     
     Serial.print("PUB: ");
     Serial.println(payload);

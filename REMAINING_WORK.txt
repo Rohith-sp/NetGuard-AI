@@ -1,0 +1,155 @@
+=======================================================
+  NetGuard AI — Remaining Software Work
+  IoT Security Operations Center (SOC)
+=======================================================
+
+──────────────────────────────────────────────────────
+ STATUS SUMMARY
+──────────────────────────────────────────────────────
+✅ Live MQTT telemetry (DHT22 temp/humidity, LDR light)
+✅ FastAPI backend — MQTT → WebSocket → Next.js bridge
+✅ Real ML inference (Random Forest, netguard_model.pkl)
+   - Runs every 5 seconds on 10-second packet window
+   - Features: pkt_rate, iat, dup_ratio, seq_gap, etc.
+✅ Anomaly score graph (temporal, scrolling)
+✅ Packet rate chart (all 3 nodes, multi-line)
+✅ Node status cards (trust bars, online/offline)
+✅ Live packet feed (real-time, color-coded)
+✅ Alert log (severity: CRITICAL / HIGH / MEDIUM)
+✅ Attacker Control panel (trigger/reset via MQTT cmd)
+✅ Attacker disguised as PIR Motion sensor (public view)
+✅ IST time sync from backend to ESP nodes
+✅ Python node simulator (replaces Wokwi — see note)
+✅ SHAP Force Plot UI (explainable AI driver weights)
+✅ Device Heatmap (color-coded live node grids)
+✅ Interactive Network Topology Tab (animated SVG canvas)
+✅ RAG AI Security Analyst Chatbot (dual-key Groq + Gemini LLMs)
+
+──────────────────────────────────────────────────────
+ NOTE: WOKWI SIMULATION ISSUE
+──────────────────────────────────────────────────────
+Wokwi's simulated "Wokwi-GUEST" WiFi network does NOT
+support outbound TCP connections on port 1883 to external
+MQTT brokers (like broker.hivemq.com). All 3 ESP32 nodes
+were compiled and flashed successfully via PlatformIO, but
+cannot publish data in the virtual environment.
+
+WORKAROUND: dashboard/backend/node_simulator.py
+  - Replaces all 3 Wokwi simulations with Python threads
+  - Publishes realistic sensor data to HiveMQ
+  - Attacker stays NORMAL until dashboard "Trigger" is pressed
+  - Run: python node_simulator.py (from dashboard/backend/)
+
+WITH REAL HARDWARE: Just flash the .bin files, update WiFi
+credentials in each main.cpp, and the full pipeline works
+without any other code changes.
+
+──────────────────────────────────────────────────────
+ COMPLETED FEATURES
+──────────────────────────────────────────────────────
+
+─── 1. SHAP Force Plot (UI) ────────────────────────
+  Status   : 100% COMPLETE & VERIFIED ✅
+  Details  : Built horizontal bar chart under the Network
+             Analyzer card. Shows live weights (red = pushes
+             anomaly up, green = pushes anomaly down) dynamically
+             computed per ML inference cycle.
+
+─── 2. Device Heatmap ──────────────────────────────
+  Status   : 100% COMPLETE & VERIFIED ✅
+  Details  : Constructed a 3-cell responsive grid indicating
+             live threat level per ESP node, displaying live
+             temp, light, and motion states with pulsing borders.
+
+─── 3. Network Topology Tab ────────────────────────
+  Status   : 100% COMPLETE & VERIFIED ✅
+  Details  : Created a stunning animated SVG Canvas showing
+             the Gateway/Router, Node status, live animated
+             packet flows, and full Attacker status controls in
+             a consolidated panel.
+
+─── 4. RAG Security Chatbot ────────────────────────
+  Status   : 100% COMPLETE & VERIFIED ✅
+  Details  : Integrated a live RAG pipeline querying Llama 3.3
+             via a dual-key Groq model rotation + Gemini fallback
+             and local Expert rules system. Grounded in DATASETS.md,
+             active ML values, and 50 last logs. Added custom suggestion
+             chips, a status sidebar, and full markdown rendering.
+
+──────────────────────────────────────────────────────
+ REMAINING ENHANCEMENTS
+──────────────────────────────────────────────────────
+
+─── 1. Blynk Mobile App Integration ───────────────
+  Priority : HIGH — runs on mobile device
+  Status   : Backlog
+  Requires : Free Blynk account + Auth Token
+
+  What to build:
+  A. Backend sends real-time data to Blynk cloud:
+     - V0 = Temperature (°C)
+     - V1 = Humidity (%)
+     - V2 = Light (LUX)
+     - V3 = Anomaly score (%)
+     - V4 = Attack mode string
+     - V5 = ESP32_3 trust score
+
+  B. Push notification on CRITICAL attack:
+     - "🚨 DOS_FLOOD detected — 99% confidence"
+     - Triggered when model.isAttack = True
+
+  C. Blynk button → Reset Attacker to Normal:
+     - Blynk button (V6) POSTs to /attacker/release
+
+─── 2. Live PDF Incident Report ────────────────────
+  Priority : MEDIUM
+  Status   : Backlog
+
+  What to build:
+  - "Export Report" button on dashboard
+  - Generates PDF with:
+      • Timestamp + IST date
+      • Attack timeline (all alerts)
+      • SHAP feature importance chart
+      • Node trust scores
+      • Raw feature values at time of detection
+
+─── 3. Browser Push Notifications ──────────────────
+  Priority : LOW-MEDIUM
+  Status   : Backlog
+
+  - Request notification permission on page load
+  - Show OS-level popup: "🚨 DOS FLOOD on ESP32_3 (99%)"
+  - Works even when browser tab is in background
+
+──────────────────────────────────────────────────────
+ HOW TO RUN
+──────────────────────────────────────────────────────
+Terminal 1 — Backend:
+  cd dashboard/backend
+  python -m uvicorn main:app --port 8000
+
+Terminal 2 — Node Simulator (replaces Wokwi):
+  cd dashboard/backend
+ 	
+
+Terminal 3 — Frontend:
+  cd dashboard/frontend
+  npm run dev
+
+Open: http://localhost:3000
+
+──────────────────────────────────────────────────────
+ HARDWARE TRANSITION
+──────────────────────────────────────────────────────
+1. Stop node_simulator.py
+2. In each firmware main.cpp, change:
+     const char* ssid     = "YourWiFiName";
+     const char* password = "YourWiFiPass";
+3. Flash with:
+     cd hardware-simulation/NetGuard_DHT_Node
+     pio run --target upload
+   (repeat for LDR and Attacker nodes)
+4. Everything else works unchanged.
+
+=======================================================

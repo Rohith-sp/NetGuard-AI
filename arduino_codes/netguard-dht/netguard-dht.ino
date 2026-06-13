@@ -76,7 +76,7 @@ void reconnect() {
     String clientId = "ESP32-DHT-" + String(random(0xffff), HEX);
     if (client.connect(clientId.c_str())) {
       Serial.println("Connected to MQTT!");
-      client.subscribe("netguard/alerts");
+      client.subscribe("netguard_rohit_77/alerts");
     } else {
       delay(5000);
     }
@@ -157,7 +157,7 @@ void loop() {
       String payload = "{\"device\":\"esp32_1\",\"temp\":" + String(temperature) +
                        ",\"hum\":" + String(humidity) +
                        ",\"seq\":" + String(seqNumber) + "}";
-      client.publish("netguard/device1", payload.c_str());
+      client.publish("netguard_rohit_77/device1", payload.c_str());
       Serial.print("PUB: ");
       Serial.println(payload);
     }

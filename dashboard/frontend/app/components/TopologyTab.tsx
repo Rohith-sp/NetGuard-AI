@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useCallback, useState } from "react";
 import type { NodeData, MLState } from "../hooks/useLiveData";
+import { WarningIcon, TempIcon, LightBulbIcon, SkullIcon, BombIcon, GhostIcon, CameraIcon } from "./Icons";
 
 export type SimKey = "NORMAL" | "DOS_FLOOD" | "REPLAY_ATTACK" | "SLOW_RATE_ATTACK" | "DATA_POISON" | "TOPIC_BOMB" | "EVASION_ATTACK";
 
@@ -145,10 +146,15 @@ export default function TopologyTab({ n1, n2, n3, ml: _realMl, wsReady, simulate
         {isAttack && (
           <span className="topo-sim-chip">SIM MODE</span>
         )}
-        <span className={`topo-status-hint${isAttack ? " danger" : ""}`}>
-          {isAttack
-            ? `⚠ ${pred.label.replace(/_/g, " ")} — simulated`
-            : "Network nominal — no active threats"}
+        <span className={`topo-status-hint${isAttack ? " danger" : ""}`} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          {isAttack ? (
+            <>
+              <WarningIcon width={12} height={12} color="var(--red)" />
+              <span>{pred.label.replace(/_/g, " ")} — simulated</span>
+            </>
+          ) : (
+            "Network nominal — no active threats"
+          )}
         </span>
       </div>
 
@@ -306,8 +312,9 @@ export default function TopologyTab({ n1, n2, n3, ml: _realMl, wsReady, simulate
             <g className="topo-node-card" id="nc-esp1">
               <rect x={145} y={210} width={160} height={62} rx={8}
                 fill="var(--surface2)" stroke={esp1C} strokeWidth="0.8"/>
-              <text fontSize={16} x={225} y={232}
-                textAnchor="middle" dominantBaseline="central" fill={esp1C}>🌡</text>
+              <g transform="translate(215, 222)">
+                <TempIcon width={20} height={20} color={esp1C} />
+              </g>
               <text fontSize={10} fontWeight="500" x={225} y={252}
                 textAnchor="middle" dominantBaseline="central" fill="var(--text)">ESP32_1</text>
               <text fontFamily="var(--mono)" fontSize={8} x={225} y={266}
@@ -323,8 +330,9 @@ export default function TopologyTab({ n1, n2, n3, ml: _realMl, wsReady, simulate
             <g className="topo-node-card" id="nc-esp2">
               <rect x={370} y={210} width={160} height={62} rx={8}
                 fill="var(--surface2)" stroke={esp2C} strokeWidth="0.8"/>
-              <text fontSize={16} x={450} y={232}
-                textAnchor="middle" dominantBaseline="central" fill={esp2C}>💡</text>
+              <g transform="translate(440, 222)">
+                <LightBulbIcon width={20} height={20} color={esp2C} />
+              </g>
               <text fontSize={10} fontWeight="500" x={450} y={252}
                 textAnchor="middle" dominantBaseline="central" fill="var(--text)">ESP32_2</text>
               <text fontFamily="var(--mono)" fontSize={8} x={450} y={266}
@@ -346,10 +354,17 @@ export default function TopologyTab({ n1, n2, n3, ml: _realMl, wsReady, simulate
                   isAttack ? "var(--red-bg)" : "var(--surface2)"
                 }
                 stroke={esp3C} strokeWidth={isAttack ? 1.4 : 0.8}/>
-              <text fontSize={16} x={675} y={232}
-                textAnchor="middle" dominantBaseline="central" fill={esp3C}>
-                {anim === "poison" ? "☠" : anim === "bomb" ? "💣" : anim === "evasion" ? "👻" : "📷"}
-              </text>
+              <g transform="translate(665, 222)">
+                {anim === "poison" ? (
+                  <SkullIcon width={20} height={20} color={esp3C} />
+                ) : anim === "bomb" ? (
+                  <BombIcon width={20} height={20} color={esp3C} />
+                ) : anim === "evasion" ? (
+                  <GhostIcon width={20} height={20} color={esp3C} />
+                ) : (
+                  <CameraIcon width={20} height={20} color={esp3C} />
+                )}
+              </g>
               <text fontSize={10} fontWeight="500" x={675} y={252}
                 textAnchor="middle" dominantBaseline="central"
                 fill={isAttack ? (ANIM_COLOR[anim] ?? "var(--red)") : "var(--text)"}>ESP32_3</text>
@@ -474,16 +489,24 @@ export default function TopologyTab({ n1, n2, n3, ml: _realMl, wsReady, simulate
 
       {/* Attack banner — message and icon adapt to attack type */}
       {isAttack && (
-        <div className="topo-alert-banner" style={{ borderColor: ANIM_COLOR[anim] ?? "var(--red)", background: `${ANIM_COLOR[anim] ?? "var(--red)"}1a` }}>
-          <span style={{ fontSize: 14 }}>
-            {anim === "poison" ? "☠" : anim === "bomb" ? "💣" : anim === "evasion" ? "👻" : "⚠"}
+        <div className="topo-alert-banner" style={{ borderColor: ANIM_COLOR[anim] ?? "var(--red)", background: `${ANIM_COLOR[anim] ?? "var(--red)"}1a`, display: "flex", gap: 8, alignItems: "center" }}>
+          <span style={{ display: "inline-flex", alignItems: "center" }}>
+            {anim === "poison" ? (
+              <SkullIcon width={16} height={16} color={ANIM_COLOR[anim] ?? "var(--red)"} />
+            ) : anim === "bomb" ? (
+              <BombIcon width={16} height={16} color={ANIM_COLOR[anim] ?? "var(--red)"} />
+            ) : anim === "evasion" ? (
+              <GhostIcon width={16} height={16} color={ANIM_COLOR[anim] ?? "var(--red)"} />
+            ) : (
+              <WarningIcon width={16} height={16} color={ANIM_COLOR[anim] ?? "var(--red)"} />
+            )}
           </span>
           <span>
             <strong>{pred.label.replace(/_/g, " ")}</strong> simulated on ESP32_3 —{" "}
             <strong style={{ color: ANIM_COLOR[anim] }}>{pred.confidence}%</strong> expected confidence &nbsp;·&nbsp;
             IAT {pred.iatMean >= 1000 ? `${(pred.iatMean/1000).toFixed(1)}s` : `${pred.iatMean}ms`} &nbsp;·&nbsp;
             {pred.pktRate} pkt/s
-            {anim === "poison"  && <> &nbsp;·&nbsp; <strong style={{ color: "#f97316" }}>SPOOFING netguard/device1</strong></>}
+            {anim === "poison"  && <> &nbsp;·&nbsp; <strong style={{ color: "#f97316" }}>SPOOFING netguard_rohit_77/device1</strong></>}
             {anim === "bomb"    && <> &nbsp;·&nbsp; <strong style={{ color: "#d946ef" }}>FLOODING 1000+ random topics</strong></>}
             {anim === "evasion" && <> &nbsp;·&nbsp; <strong style={{ color: "#facc15" }}>CAMOUFLAGING std_inter_arrival_ms</strong></>}
           </span>

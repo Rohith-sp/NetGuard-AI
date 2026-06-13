@@ -43,7 +43,7 @@ def generate_slow_rate_packets(n_windows: int = 50, base_seq: int = 2000) -> pd.
 
         rows.append({
             "timestamp_utc":   t.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-            "topic":           "netguard/attacker",
+            "topic":           "netguard_rohit_77/attacker",
             "device":          "esp32_3",
             "mode":            "SLOW_RATE_ATTACK",
             "seq":             seq,
@@ -64,7 +64,7 @@ def generate_slow_rate_packets(n_windows: int = 50, base_seq: int = 2000) -> pd.
         seq_d1 += 1
         rows.append({
             "timestamp_utc":   t_n.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-            "topic":           "netguard/device1",
+            "topic":           "netguard_rohit_77/device1",
             "device":          "esp32_1",
             "mode":            "NORMAL",
             "seq":             seq_d1,
@@ -81,7 +81,7 @@ def generate_slow_rate_packets(n_windows: int = 50, base_seq: int = 2000) -> pd.
 def build_features_from_df(df: pd.DataFrame, window_sec: float = 10.0) -> pd.DataFrame:
     df = df.copy()
     df["ts"] = pd.to_datetime(df["timestamp_utc"]).astype("int64") / 1e9
-    atk = df[df["topic"] == "netguard/attacker"].copy()
+    atk = df[df["topic"] == "netguard_rohit_77/attacker"].copy()
     atk = atk.sort_values("ts").reset_index(drop=True)
 
     rows = []

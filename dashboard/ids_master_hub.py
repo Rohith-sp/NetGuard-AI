@@ -122,7 +122,7 @@ if 'packet_buffer' not in st.session_state:
 
 # ─── MQTT BACKGROUND THREAD ───────────────────────────────────────────────────
 def on_connect(client, userdata, flags, rc):
-    client.subscribe("netguard/#")
+    client.subscribe("netguard_rohit_77/#")
 
 def on_message(client, userdata, msg):
     try:

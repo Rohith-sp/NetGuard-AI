@@ -53,9 +53,9 @@ except Exception as e:
         "broker": "broker.hivemq.com",
         "port": 1883,
         "topics": {
-            "netguard/device1": {"device_id": "esp32_1", "description": "DHT22 Node"},
-            "netguard/device2": {"device_id": "esp32_2", "description": "LDR Node"},
-            "netguard/attacker": {"device_id": "esp32_3", "description": "Attacker Node"}
+            "netguard_rohit_77/device1": {"device_id": "esp32_1", "description": "DHT22 Node"},
+            "netguard_rohit_77/device2": {"device_id": "esp32_2", "description": "LDR Node"},
+            "netguard_rohit_77/attacker": {"device_id": "esp32_3", "description": "Attacker Node"}
         },
         "output_directory": "./collected_datasets",
         "default_label": "NORMAL"
@@ -121,8 +121,8 @@ def add_log(msg):
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
         add_log(f"Connected to MQTT Broker ({BROKER}:{PORT})")
-        client.subscribe("netguard/#", 0)
-        add_log("Subscribed to wildcard topic → netguard/#")
+        client.subscribe("netguard_rohit_77/#", 0)
+        add_log("Subscribed to wildcard topic → netguard_rohit_77/#")
     else:
         add_log(f"Connection failed with code {rc}")
 
@@ -167,7 +167,7 @@ def on_message(client, userdata, msg):
         if mode in ["DOS_FLOOD", "REPLAY_ATTACK", "SLOW_RATE_ATTACK", "DATA_POISON", "TOPIC_BOMB", "EVASION_ATTACK"]:
             lbl = mode
             current_label = mode # Keep manual synced for display
-        elif topic == "netguard/attacker":
+        elif topic == "netguard_rohit_77/attacker":
             lbl = mode
             current_label = mode
         else:

@@ -7,6 +7,9 @@ import TopologyTab, { type SimKey } from "./components/TopologyTab";
 import AnalyticsTab from "./components/AnalyticsTab";
 import IncidentReport from "./components/IncidentReport";
 import GlobalImportanceChart from "./components/GlobalImportanceChart";
+import EvaluationTab from "./components/EvaluationTab";
+import Network50Tab from "./components/Network50Tab";
+import { WarningIcon, SearchIcon, TempIcon, ChartIcon } from "./components/Icons";
 
 function renderMarkdown(text: string) {
   let html = text
@@ -22,8 +25,8 @@ function renderMarkdown(text: string) {
 }
 
 export default function Page() {
-  const { nodes, packets, alerts, temporal, sensorTemporal, ml, incident, totalPkts, wsReady, triggerAttack, simulate } = useLiveData();
-  const [tab, setTab] = useState<"overview" | "analytics" | "topology" | "chat" | "working">("analytics");
+  const { nodes, packets, alerts, temporal, sensorTemporal, ml, evaluation, resetEvaluation, incident, totalPkts, wsReady, triggerAttack, simulate, simTopology, simNodeStates, showSimulated, toggleSimulated, simAttack, simRelease } = useLiveData();
+  const [tab, setTab] = useState<"overview" | "analytics" | "topology" | "chat" | "working" | "evaluation" | "network50">("evaluation");
   const simKey = (nodes.esp32_3?.mode as SimKey) || "NORMAL";
   const [clock, setClock]         = useState("—");
   const [chatMsgs, setChatMsgs]   = useState([{ from: "AI", text: "NetGuard AI online. Ask me about the current network state." }]);
@@ -66,9 +69,9 @@ export default function Page() {
       setChatMsgs(m => {
         const next = [...m];
         if (next.length > 0 && next[next.length - 1].text === "Thinking...") {
-          next[next.length - 1] = { from: "AI", text: "⚠️ Failed to connect to NetGuard AI Analyst backend." };
+          next[next.length - 1] = { from: "AI", text: "Failed to connect to NetGuard AI Analyst backend." };
         } else {
-          next.push({ from: "AI", text: "⚠️ Failed to connect to NetGuard AI Analyst backend." });
+          next.push({ from: "AI", text: "Failed to connect to NetGuard AI Analyst backend." });
         }
         return next;
       });
@@ -96,11 +99,13 @@ export default function Page() {
           <span className={`nav-item ${tab === "analytics" ? "active" : ""}`} onClick={() => setTab("analytics")}>Live Analytics</span>
           <span className={`nav-item ${tab === "overview"  ? "active" : ""}`} onClick={() => setTab("overview")}>Overview</span>
           <span className={`nav-item ${tab === "topology"  ? "active" : ""}`} onClick={() => setTab("topology")}>Topology</span>
+          <span className={`nav-item ${tab === "network50" ? "active" : ""}`} onClick={() => setTab("network50")}>50 Nodes Graph</span>
           <span className={`nav-item ${tab === "working"   ? "active" : ""}`} onClick={() => setTab("working")}>Working</span>
           <span className={`nav-item ${tab === "chat"      ? "active" : ""}`} onClick={() => setTab("chat")}>AI Analyst</span>
+          <span className={`nav-item ${tab === "evaluation" ? "active" : ""}`} onClick={() => setTab("evaluation")}>Evaluation</span>
         </nav>
         <div className="header-right">
-          {alerts.length > 0 && <div className="alert-pill">⚠ {alerts.length} alerts</div>}
+          {alerts.length > 0 && <div className="alert-pill" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><WarningIcon width={12} height={12} color="currentColor" /> {alerts.length} alerts</div>}
           <div className="live-pill"><div className="live-dot" />{wsReady ? "Live" : "Connecting…"}</div>
           <div className="clock">{clock}</div>
         </div>
@@ -110,12 +115,26 @@ export default function Page() {
         <div className="page-title-row">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
             <div>
-              <div className="page-title">{tab === "analytics" ? "Live Sensor Analytics" : tab === "overview" ? "Network Overview" : tab === "topology" ? "Network Topology" : tab === "working" ? "System Architecture" : "AI Security Analyst"}</div>
-              <div className="page-subtitle">{tab === "analytics" ? "Real-time temperature, humidity & light readings from your IoT nodes" : tab === "working" ? "End-to-end hybrid pipeline — how NetGuard AI detects intrusions" : "Semester IV · 3 nodes monitored"}</div>
+              <div className="page-title">
+                {tab === "analytics" ? "Live Sensor Analytics" : 
+                 tab === "overview" ? "Network Overview" : 
+                 tab === "topology" ? "Network Topology" : 
+                 tab === "network50" ? "50-Node Simulated Network" :
+                 tab === "working" ? "System Architecture" : 
+                 tab === "evaluation" ? "Automated Benchmarking" :
+                 "AI Security Analyst"}
+              </div>
+              <div className="page-subtitle">
+                {tab === "analytics" ? "Real-time temperature, humidity & light readings from your IoT nodes" : 
+                 tab === "working" ? "End-to-end hybrid pipeline — how NetGuard AI detects intrusions" : 
+                 tab === "evaluation" ? "Proposed Hybrid Pipeline vs Baseline ML Model Ablation Analysis" :
+                 tab === "network50" ? "Large-scale IoT network topology with real-time attack simulation" :
+                 "Semester IV · 3 nodes monitored"}
+              </div>
             </div>
             {simKey !== "NORMAL" && (
-              <span className="demo-active-pill" style={{ background: "var(--red-bg)", color: "var(--red)", borderColor: "var(--red)", fontSize: "11px", padding: "4px 10px" }}>
-                ⚠ {simKey.replace(/_/g, " ")} ACTIVE
+              <span className="demo-active-pill" style={{ background: "var(--red-bg)", color: "var(--red)", borderColor: "var(--red)", fontSize: "11px", padding: "4px 10px", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <WarningIcon width={12} height={12} color="var(--red)" /> {simKey.replace(/_/g, " ")} ACTIVE
               </span>
             )}
           </div>
@@ -266,7 +285,7 @@ export default function Page() {
                 <div className="card-body" style={{ display: "flex", flexDirection: "column", gap: 0 }}>
                   {[
                     { step: "1", label: "ESP32 Nodes", desc: "DHT22 / LDR / Attacker publish MQTT packets to broker.hivemq.com", color: "var(--green)" },
-                    { step: "2", label: "HiveMQ Broker", desc: "Public cloud MQTT broker — routes netguard/# wildcard to all subscribers", color: "var(--blue)" },
+                    { step: "2", label: "HiveMQ Broker", desc: "Public cloud MQTT broker — routes netguard_rohit_77/# wildcard to all subscribers", color: "var(--blue)" },
                     { step: "3", label: "FastAPI Backend", desc: "Subscribes via Paho, buffers packets in a 60-second deque, runs pipeline every 5s", color: "var(--purple)" },
                     { step: "4", label: "Statistical Profiler", desc: "EMA Z-Score on payloads, global IAT tracking — catches Data Poison & Slow Rate", color: "var(--amber)" },
                     { step: "5", label: "Random Forest ML", desc: "10-feature vector fed to Random Forest → SHAP explanation generated in thread pool", color: "var(--blue)" },
@@ -293,7 +312,7 @@ export default function Page() {
                   {[
                     { layer: "Hardware", items: "ESP32 × 3 · DHT22 sensor · LDR sensor · 16×2 I2C LCD · Push button (GPIO 14)" },
                     { layer: "Firmware", items: "Arduino IDE · PubSubClient · LiquidCrystal_I2C · WiFiClient" },
-                    { layer: "Protocol", items: "MQTT over TCP · HiveMQ public broker · netguard/# wildcard topics" },
+                    { layer: "Protocol", items: "MQTT over TCP · HiveMQ public broker · netguard_rohit_77/# wildcard topics" },
                     { layer: "Backend", items: "Python 3.12 · FastAPI · Uvicorn · Paho MQTT · scikit-learn · SHAP · Groq API · Gemini API" },
                     { layer: "ML Model", items: "Random Forest (7-class) · 10 flow features · SHAP TreeExplainer · asyncio.to_thread offload" },
                     { layer: "Frontend", items: "Next.js 15 · React 19 · TypeScript · Recharts · Vanilla CSS · DM Sans / JetBrains Mono" },
@@ -431,14 +450,14 @@ export default function Page() {
               {/* Suggestions chips row */}
               {chatMsgs.length === 1 && (
                 <div style={{ padding: "0 24px", display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-                  <button className="atk-select" style={{ fontSize: 11, padding: "5px 12px", borderRadius: 14 }} onClick={() => sendChat("Why is ESP32_3 flagged as suspicious right now?")}>
-                    🔍 Why is ESP32_3 suspicious?
+                  <button className="atk-select" style={{ fontSize: 11, padding: "5px 12px", borderRadius: 14, display: "inline-flex", alignItems: "center", gap: 6 }} onClick={() => sendChat("Why is ESP32_3 flagged as suspicious right now?")}>
+                    <SearchIcon width={12} height={12} /> Why is ESP32_3 suspicious?
                   </button>
-                  <button className="atk-select" style={{ fontSize: 11, padding: "5px 12px", borderRadius: 14 }} onClick={() => sendChat("What are the current DHT and LDR sensor readings?")}>
-                    🌡️ Show active sensor readings
+                  <button className="atk-select" style={{ fontSize: 11, padding: "5px 12px", borderRadius: 14, display: "inline-flex", alignItems: "center", gap: 6 }} onClick={() => sendChat("What are the current DHT and LDR sensor readings?")}>
+                    <TempIcon width={12} height={12} /> Show active sensor readings
                   </button>
-                  <button className="atk-select" style={{ fontSize: 11, padding: "5px 12px", borderRadius: 14 }} onClick={() => sendChat("What features does the Random Forest model evaluate?")}>
-                    📊 Explain model features
+                  <button className="atk-select" style={{ fontSize: 11, padding: "5px 12px", borderRadius: 14, display: "inline-flex", alignItems: "center", gap: 6 }} onClick={() => sendChat("What features does the Random Forest model evaluate?")}>
+                    <ChartIcon width={12} height={12} /> Explain model features
                   </button>
                 </div>
               )}
@@ -451,6 +470,20 @@ export default function Page() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* ── EVALUATION TAB ────────────────────────────────────────────── */}
+        {tab === "evaluation" && (
+          <EvaluationTab evaluation={evaluation} resetEvaluation={resetEvaluation} wsReady={wsReady}
+            showSimulated={showSimulated} toggleSimulated={toggleSimulated}
+            simTopology={simTopology} simNodeStates={simNodeStates}
+            simAttack={simAttack} simRelease={simRelease}
+          />
+        )}
+
+        {/* ── 50 NODES GRAPH TAB ─────────────────────────────────────────── */}
+        {tab === "network50" && (
+          <Network50Tab topology={simTopology} nodeStates={simNodeStates} simAttack={simAttack} simRelease={simRelease} />
         )}
 
         <div style={{ textAlign: "center", marginTop: 8, fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-3)" }}>

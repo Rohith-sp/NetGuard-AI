@@ -3,7 +3,7 @@ NetGuard AI — Full Node Simulator (replaces all 3 Wokwi simulations)
 Publishes realistic data to HiveMQ on the same topics Wokwi would use.
 - ESP32_1 (DHT22): Bangalore temp/humidity based on real IST system time
 - ESP32_2 (LDR):   Bangalore light levels based on real IST sunrise/sunset
-- ESP32_3 (Attacker): Auto-switching attack modes, responds to netguard/cmd
+- ESP32_3 (Attacker): Auto-switching attack modes, responds to netguard_rohit_77/cmd
 """
 import paho.mqtt.client as mqtt
 import json, time, math, random, threading
@@ -66,9 +66,9 @@ def on_cmd_message(c, u, msg):
     except: pass
 
 def on_cmd_connect(c, u, f, rc, p=None):
-    c.subscribe("netguard/cmd")
-    c.subscribe("netguard/timesync")
-    print("[CMD] Subscribed to netguard/cmd")
+    c.subscribe("netguard_rohit_77/cmd")
+    c.subscribe("netguard_rohit_77/timesync")
+    print("[CMD] Subscribed to netguard_rohit_77/cmd")
 
 cmd_client.on_connect = on_cmd_connect
 cmd_client.on_message = on_cmd_message
@@ -84,7 +84,7 @@ def run_dht():
         temp = bangalore_temp(h)
         hum  = bangalore_hum(h)
         payload = json.dumps({"device": "esp32_1", "temp": temp, "humidity": hum, "ist_hour": round(h, 2), "synced": True})
-        c.publish("netguard/device1", payload)
+        c.publish("netguard_rohit_77/device1", payload)
         print(f"[DHT] {payload}")
         time.sleep(random.uniform(2.0, 5.0))
 
@@ -97,7 +97,7 @@ def run_ldr():
         h    = ist_hour()
         lux  = bangalore_light(h)
         payload = json.dumps({"device": "esp32_2", "light": lux, "ist_hour": round(h, 2), "synced": True})
-        c.publish("netguard/device2", payload)
+        c.publish("netguard_rohit_77/device2", payload)
         print(f"[LDR] {payload}")
         time.sleep(random.uniform(2.0, 5.0))
 
@@ -125,7 +125,7 @@ def run_attacker():
             if replay_payload is None: replay_payload = payload
             else:                       payload = replay_payload
 
-        c.publish("netguard/attacker", payload)
+        c.publish("netguard_rohit_77/attacker", payload)
         print(f"[ATK] {payload}")
 
         lo, hi = get_interval()

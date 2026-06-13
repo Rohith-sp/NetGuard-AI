@@ -184,7 +184,7 @@ void reconnect() {
     
     if (client.connect(clientId.c_str())) {
       Serial.println("Connected!");
-      client.subscribe("netguard/cmd"); // Subscribe to command topic
+      client.subscribe("netguard_rohit_77/cmd"); // Subscribe to command topic
       lcd.clear();
       lcd.setCursor(0, 0);
       lcd.print("MQTT Connected!");
@@ -337,17 +337,17 @@ void loop() {
       seqNumber++;
     }
 
-    String topic = "netguard/attacker";
+    String topic = "netguard_rohit_77/attacker";
     String payload = "";
 
     if (currentMode == DATA_POISON) {
       // Spoof Device 1 and send poisoned math
-      topic = "netguard/device1";
+      topic = "netguard_rohit_77/device1";
       payload = "{\"device\":\"esp32_1\",\"temp\":999.0,\"humidity\":-100.0,\"poisoned\":true,\"mode\":\"" + getModeString() + "\"}";
     } 
     else if (currentMode == TOPIC_BOMB) {
       // Dynamically generate random topic targets
-      topic = "netguard/junk_" + String(random(1000));
+      topic = "netguard_rohit_77/junk_" + String(random(1000));
       payload = "{\"device\":\"esp32_3\",\"mode\":\"" + getModeString() + "\",\"garbage\":true}";
     }
     else {

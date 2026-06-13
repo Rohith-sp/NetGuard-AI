@@ -1,0 +1,14 @@
+# NetGuard AI — Python Dependencies
+# Install: pip install -r requirements.txt
+
+fastapi>=0.110.0
+uvicorn>=0.27.0
+paho-mqtt>=2.0.0
+numpy>=1.26.0
+scikit-learn>=1.4.0
+joblib>=1.3.0
+pydantic>=2.5.0
+networkx>=3.2.0
+groq>=0.4.0
+google-genai>=1.0.0
+shap>=0.44.0

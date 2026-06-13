@@ -10,6 +10,7 @@ import {
   ReferenceLine,
 } from "recharts";
 import type { SensorPoint, NodeData } from "../hooks/useLiveData";
+import { TempIcon, HumidIcon, LightIcon, SignalIcon } from "./Icons";
 
 // ─── Custom Tooltip ─────────────────────────────────────────────────────────
 function ChartTooltip({
@@ -33,7 +34,7 @@ function ChartTooltip({
 }
 
 // ─── Stat Summary Card ──────────────────────────────────────────────────────
-function StatSummary({ label, value, unit, color, icon }: { label: string; value: string; unit: string; color: string; icon: string; }) {
+function StatSummary({ label, value, unit, color, icon }: { label: string; value: string; unit: string; color: string; icon: React.ReactNode; }) {
   return (
     <div style={{
       background: "var(--surface2)", border: "1px solid var(--border)",
@@ -45,7 +46,7 @@ function StatSummary({ label, value, unit, color, icon }: { label: string; value
         background: `color-mix(in srgb, ${color} 12%, transparent)`,
         border: `1px solid color-mix(in srgb, ${color} 25%, transparent)`,
         display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: 20, flexShrink: 0,
+        flexShrink: 0,
       }}>{icon}</div>
       <div>
         <div style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: 2 }}>{label}</div>
@@ -96,8 +97,9 @@ function EmptyChart({ color, message }: { color: string; message: string }) {
         width: 36, height: 36, borderRadius: "50%",
         background: `color-mix(in srgb, ${color} 10%, var(--surface2))`,
         display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: 16,
-      }}>📡</div>
+      }}>
+        <SignalIcon width={18} height={18} color={color} />
+      </div>
       {message}
     </div>
   );
@@ -134,15 +136,15 @@ export default function AnalyticsTab({
       {/* ── KPI Summary Row ───────────────────────────────────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
         <StatSummary
-          icon="🌡️" label="Temperature" unit="°C" color="var(--red)"
+          icon={<TempIcon width={20} height={20} color="var(--red)" />} label="Temperature" unit="°C" color="var(--red)"
           value={latestTemp !== null ? latestTemp.toFixed(1) : "—"}
         />
         <StatSummary
-          icon="💧" label="Humidity" unit="%" color="var(--blue)"
+          icon={<HumidIcon width={20} height={20} color="var(--blue)" />} label="Humidity" unit="%" color="var(--blue)"
           value={latestHumid !== null ? latestHumid.toFixed(1) : "—"}
         />
         <StatSummary
-          icon="☀️" label="Light Intensity" unit="LUX" color="var(--amber)"
+          icon={<LightIcon width={20} height={20} color="var(--amber)" />} label="Light Intensity" unit="LUX" color="var(--amber)"
           value={latestLight !== null ? String(latestLight) : "—"}
         />
       </div>
@@ -150,8 +152,8 @@ export default function AnalyticsTab({
       {/* ── Node Status Strip ─────────────────────────────────────────────── */}
       <div style={{ display: "flex", gap: 14 }}>
         {[
-          { id: "Node A · DHT11",  topic: "netguard/device1", online: n1Online, color: "var(--green)",  desc: "Temperature & Humidity" },
-          { id: "Node B · LDR",    topic: "netguard/device2", online: n2Online, color: "var(--amber)",  desc: "Ambient Light" },
+          { id: "Node A · DHT11",  topic: "netguard_rohit_77/device1", online: n1Online, color: "var(--green)",  desc: "Temperature & Humidity" },
+          { id: "Node B · LDR",    topic: "netguard_rohit_77/device2", online: n2Online, color: "var(--amber)",  desc: "Ambient Light" },
         ].map(node => (
           <div key={node.id} style={{
             flex: 1, background: "var(--surface)", border: "1px solid var(--border)",

@@ -1,11 +1,12 @@
 """
 NetGuard AI — FastAPI Backend
+
 - MQTT → WebSocket bridge
 - Live Random Forest inference every 5s on attacker packet window
 - SHAP values computed per inference cycle
 - IST timesync published to ESP nodes
 """
-import asyncio, json, time, math, threading, pickle, os
+import asyncio, json, time, math, threading, pickle, os, sys
 from collections import deque
 from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -14,10 +15,18 @@ import paho.mqtt.client as mqtt
 from pydantic import BaseModel
 import numpy as np
 import joblib
+
+# Ensure bare imports (statistical_analyzer, model_wrapper, rag) resolve
+# regardless of whether uvicorn is started from project root or backend dir
+_backend_dir = os.path.dirname(os.path.abspath(__file__))
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
+
 from statistical_analyzer import StatisticalProfiler
 
 profiler = StatisticalProfiler()
 
+from model_wrapper import EnsembleClassifierWrapper
 
 # ── Load .env manually if exists ──────────────────────────────────────────────
 env_path = os.path.join(os.path.dirname(__file__), ".env")
@@ -65,7 +74,11 @@ try:
     model = joblib.load(MODEL_PATH)
     print(f"[ML] Model loaded from {MODEL_PATH}")
     print(f"[ML] Classes: {model.classes_}")
-    EXPLAINER = shap.TreeExplainer(model) if HAS_SHAP else None
+    
+    # Target underlying Random Forest model for SHAP TreeExplainer
+    explainer_target = model.voting_clf.named_estimators_['rf'] if hasattr(model, 'voting_clf') else model
+    EXPLAINER = shap.TreeExplainer(explainer_target) if HAS_SHAP and explainer_target else None
+    
     # Global feature importance (computed once from model weights)
     GLOBAL_IMPORTANCE = [
         {"feature": FEATURE_COLS[i], "importance": round(float(model.feature_importances_[i]) * 100, 2)}
@@ -83,6 +96,55 @@ connected_ws : list[WebSocket] = []
 last_messages: list[dict]      = []
 packet_buffer: deque           = deque()   # raw attacker packets (last 60s)
 _loop: asyncio.AbstractEventLoop | None = None
+
+# ── Simulator State ───────────────────────────────────────────────────────────
+SHOW_SIMULATED: bool = False
+sim_topology: dict = {}       # Latest topology from simulator
+sim_node_states: dict = {}    # Per-node attack status from simulator
+
+# Evaluation & Benchmarking State
+CLASSES = ["NORMAL", "DOS_FLOOD", "REPLAY_ATTACK", "SLOW_RATE_ATTACK", "DATA_POISON", "TOPIC_BOMB", "EVASION_ATTACK"]
+CLASS_TO_IDX = {c: i for i, c in enumerate(CLASSES)}
+
+hybrid_cm = [[0] * 7 for _ in range(7)]
+baseline_cm = [[0] * 7 for _ in range(7)]
+drift_history: list[dict] = []
+drift_score = 0.0
+
+def calculate_metrics_from_cm(cm):
+    total = sum(sum(row) for row in cm)
+    if total == 0:
+        return {"accuracy": 0.0, "precision": 0.0, "recall": 0.0, "f1": 0.0}
+    
+    accuracy = sum(cm[i][i] for i in range(7)) / total
+    
+    precisions = []
+    recalls = []
+    f1s = []
+    
+    for c in range(7):
+        tp = cm[c][c]
+        fp = sum(cm[i][c] for i in range(7) if i != c)
+        fn = sum(cm[c][j] for j in range(7) if j != c)
+        
+        prec = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        rec = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0.0
+        
+        precisions.append(prec)
+        recalls.append(rec)
+        f1s.append(f1)
+        
+    macro_precision = sum(precisions) / 7
+    macro_recall = sum(recalls) / 7
+    macro_f1 = sum(f1s) / 7
+    
+    return {
+        "accuracy": round(float(accuracy) * 100, 1),
+        "precision": round(float(macro_precision) * 100, 1),
+        "recall": round(float(macro_recall) * 100, 1),
+        "f1": round(float(macro_f1) * 100, 1)
+    }
 
 # Latest inference result (sent to frontend every 5s)
 latest_inference = {
@@ -109,38 +171,77 @@ def safe_std(v):
     return math.sqrt(sum((x - m)**2 for x in v) / len(v))
 
 def extract_features(pkts: list, window_sec: float = 5.0) -> dict:
-    n = len(pkts)
-    if n < 1:
+    if not pkts:
         return None
 
-    timestamps = sorted(p["ts"] for p in pkts)
-    if len(timestamps) > 1:
-        iats = [(timestamps[i+1] - timestamps[i]) * 1000 for i in range(len(timestamps)-1)]
-    else:
-        # Single packet in the window — hallmark of Slow Rate Attack
-        # Treat the whole window duration as one giant IAT (matches training augmentation)
-        iats = [window_sec * 1000]
+    # Group packets by device
+    by_device = {}
+    for p in pkts:
+        dev = p.get("device", "esp32_3")
+        if dev not in by_device:
+            by_device[dev] = []
+        by_device[dev].append(p)
 
-    seqs = [p["seq"] for p in pkts if p["seq"] >= 0]
-    seq_incs = [seqs[i+1] - seqs[i] for i in range(len(seqs)-1)]
+    device_counts = []
+    device_rates = []
+    device_mean_iats = []
+    device_std_iats = []
+    device_min_iats = []
+    device_max_iats = []
+    device_dup_ratios = []
+    device_mean_seq_incs = []
+    device_std_seq_incs = []
+    device_unique_modes = []
 
-    seen, dups = set(), 0
-    for s in seqs:
-        if s in seen: dups += 1
-        seen.add(s)
-    dup_ratio = dups / n
+    for dev, dev_pkts in by_device.items():
+        dev_pkts = sorted(dev_pkts, key=lambda x: x["ts"])
+        dn = len(dev_pkts)
+        device_counts.append(dn)
+        device_rates.append(dn / window_sec)
 
+        # IATs
+        if dn > 1:
+            dev_iats = [(dev_pkts[i+1]["ts"] - dev_pkts[i]["ts"]) * 1000 for i in range(dn-1)]
+        else:
+            dev_iats = [window_sec * 1000]
+
+        device_mean_iats.append(safe_mean(dev_iats))
+        device_std_iats.append(safe_std(dev_iats))
+        device_min_iats.append(min(dev_iats))
+        device_max_iats.append(max(dev_iats))
+
+        # Seqs
+        dev_seqs = [p["seq"] for p in dev_pkts if p["seq"] >= 0]
+        if len(dev_seqs) > 1:
+            dev_seq_incs = [dev_seqs[i+1] - dev_seqs[i] for i in range(len(dev_seqs)-1)]
+        else:
+            dev_seq_incs = [1]
+        
+        device_mean_seq_incs.append(safe_mean(dev_seq_incs))
+        device_std_seq_incs.append(safe_std(dev_seq_incs))
+
+        # Duplicate ratio
+        seen, dups = set(), 0
+        for s in dev_seqs:
+            if s in seen: dups += 1
+            seen.add(s)
+        device_dup_ratios.append(dups / dn)
+
+        # Modes
+        device_unique_modes.append(len(set(p["mode"] for p in dev_pkts)))
+
+    # Compute scale-invariant "extreme-value" features
     return {
-        "packet_count":          n,
-        "packet_rate":           round(n / window_sec, 4),
-        "mean_inter_arrival_ms": round(safe_mean(iats), 2),
-        "std_inter_arrival_ms":  round(safe_std(iats), 2),
-        "min_inter_arrival_ms":  round(min(iats), 2) if iats else 0,
-        "max_inter_arrival_ms":  round(max(iats), 2) if iats else 0,
-        "duplicate_ratio":       round(dup_ratio, 4),
-        "seq_increment_mean":    round(safe_mean(seq_incs), 4),
-        "seq_increment_std":     round(safe_std(seq_incs), 4),
-        "unique_modes":          len(set(p["mode"] for p in pkts)),
+        "packet_count":          round(max(device_counts), 4),
+        "packet_rate":           round(max(device_rates), 4),
+        "mean_inter_arrival_ms": round(min(device_mean_iats), 2),
+        "std_inter_arrival_ms":  round(max(device_std_iats), 2),
+        "min_inter_arrival_ms":  round(min(device_min_iats), 2),
+        "max_inter_arrival_ms":  round(min(device_max_iats), 2),
+        "duplicate_ratio":       round(max(device_dup_ratios), 4),
+        "seq_increment_mean":    round(min(device_mean_seq_incs), 4),
+        "seq_increment_std":     round(max(device_std_seq_incs), 4),
+        "unique_modes":          int(max(device_unique_modes)),
     }
 
 # ── ML Inference Loop (every 5 seconds) ───────────────────────────────────────
@@ -168,8 +269,39 @@ async def inference_loop():
             if feats is None:
                 continue
 
-            # ── 1. Hybrid Pipeline: Dynamic Statistical Profiler ───────
+            # ── 1. Run ML Stage (Always execute to get the baseline model's classification) ──
+            def run_ml(f):
+                X = np.array([[f[c] for c in FEATURE_COLS]])
+                p_label = model.predict(X)[0]
+                p_proba = model.predict_proba(X)[0]
+                conf = round(float(max(p_proba)) * 100, 1)
+                
+                s_out = []
+                if EXPLAINER and HAS_SHAP:
+                    try:
+                        cls_idx = list(model.classes_).index(p_label)
+                        sv = EXPLAINER.shap_values(X, check_additivity=False)
+                        if isinstance(sv, list):
+                            vals = np.array(sv[cls_idx][0])
+                        elif sv.ndim == 3:
+                            vals = sv[0, :, cls_idx]
+                        else:
+                            vals = sv[0]
+                        s_out = sorted([
+                            {"feature": FEATURE_COLS[i], "value": round(float(vals[i]), 4), "raw": round(float(X[0][i]), 3)}
+                            for i in range(len(FEATURE_COLS))
+                        ], key=lambda x: abs(x["value"]), reverse=True)
+                    except Exception as e:
+                        print(f"[SHAP] Error: {e}")
+                return p_label, conf, s_out
+
+            ml_label, ml_confidence, ml_shap = await asyncio.to_thread(run_ml, feats)
+
+            # ── 2. Hybrid Pipeline: Dynamic Statistical Profiler ───────
             rule_triggered = False
+            pred_label = ml_label
+            confidence = ml_confidence
+            shap_out = ml_shap
             
             # Rule 1: Data Poisoning (Live Z-Score Tracker on Payload)
             if any(p.get("mode") == "DATA_POISON" for p in window):
@@ -178,7 +310,7 @@ async def inference_loop():
                 rule_triggered = True
 
             # Rule 2: Slow Rate Attack (Global Packet-State Math)
-            elif profiler.detect_slow_rate() and feats["packet_rate"] <= 0.4:
+            elif profiler.detect_slow_rate() is not None and feats["packet_rate"] <= 0.4:
                 pred_label = "SLOW_RATE_ATTACK"
                 confidence = 100.0
                 rule_triggered = True
@@ -188,36 +320,8 @@ async def inference_loop():
                 # Mock SHAP to show Rule Engine dominance in the UI
                 shap_out = [{"feature": "Rule_Engine_Override", "value": 1.0, "raw": 1.0}]
             else:
-                # ── 2. Hybrid Pipeline: ML Stage (Offloaded to thread) ──
-                def run_ml(f):
-                    X = np.array([[f[c] for c in FEATURE_COLS]])
-                    p_label = model.predict(X)[0]
-                    p_proba = model.predict_proba(X)[0]
-                    conf = round(float(max(p_proba)) * 100, 1)
-                    
-                    s_out = []
-                    if EXPLAINER and HAS_SHAP:
-                        try:
-                            sv = EXPLAINER.shap_values(X, check_additivity=False)
-                            cls_idx = list(model.classes_).index(p_label)
-                            if isinstance(sv, list):
-                                vals = np.array(sv[cls_idx][0])
-                            elif sv.ndim == 3:
-                                vals = sv[0, :, cls_idx]
-                            else:
-                                vals = sv[0]
-                            s_out = sorted([
-                                {"feature": FEATURE_COLS[i], "value": round(float(vals[i]), 4), "raw": round(float(X[0][i]), 3)}
-                                for i in range(len(FEATURE_COLS))
-                            ], key=lambda x: abs(x["value"]), reverse=True)
-                        except Exception as e:
-                            print(f"[SHAP] Error: {e}")
-                    return p_label, conf, s_out
-
-                pred_label, confidence, shap_out = await asyncio.to_thread(run_ml, feats)
-                
                 normal_classes = {c for c in model.classes_ if c.upper() == "NORMAL"}
-                is_attack  = pred_label not in normal_classes
+                is_attack = pred_label not in normal_classes
 
             latest_inference = {
                 "label":      pred_label,
@@ -229,12 +333,73 @@ async def inference_loop():
                 "iat_mean":   int(feats["mean_inter_arrival_ms"]),
                 "dup_ratio":  feats["duplicate_ratio"],
                 "seq_gap":    round(feats["seq_increment_mean"], 2),
+                "baseline": {
+                    "label":      ml_label,
+                    "confidence": ml_confidence,
+                    "isAttack":   ml_label not in {"NORMAL", "normal"}
+                }
             }
 
             # Push inference result to all WebSocket clients
-            out = json.dumps({"topic": "netguard/inference", **latest_inference})
+            out = json.dumps({"topic": "netguard_rohit_77/inference", **latest_inference})
             if _loop:
                 asyncio.run_coroutine_threadsafe(broadcast(out), _loop)
+
+            # ── 3. Evaluation & Concept Drift Calculations ─────────────────────
+            global hybrid_cm, baseline_cm, drift_score, drift_history
+            
+            # Ground truth classification based on active modes in window
+            active_modes = [p["mode"] for p in window if p.get("mode") and p["mode"] != "NORMAL"]
+            ground_truth = active_modes[0] if active_modes else "NORMAL"
+            
+            actual_cls = ground_truth.upper().strip()
+            pred_cls = pred_label.upper().strip()
+            base_cls = ml_label.upper().strip()
+            
+            if actual_cls in CLASS_TO_IDX and pred_cls in CLASS_TO_IDX:
+                hybrid_cm[CLASS_TO_IDX[actual_cls]][CLASS_TO_IDX[pred_cls]] += 1
+            if actual_cls in CLASS_TO_IDX and base_cls in CLASS_TO_IDX:
+                baseline_cm[CLASS_TO_IDX[actual_cls]][CLASS_TO_IDX[base_cls]] += 1
+                
+            # Concept Drift Z-Score distance calculation
+            drift_val = 0.0
+            if model and hasattr(model, "feature_means") and model.feature_means:
+                z_scores = []
+                for col in FEATURE_COLS:
+                    val = feats.get(col, 0.0)
+                    mean_val = model.feature_means.get(col, 0.0)
+                    std_val = model.feature_stds.get(col, 1.0)
+                    if std_val < 1e-5:
+                        std_val = 1.0
+                    z_scores.append(abs(val - mean_val) / std_val)
+                drift_val = round(float(np.mean(z_scores)), 3)
+            drift_score = drift_val
+                
+            # Update drift history
+            time_str = datetime.now(IST).strftime("%H:%M:%S")
+            drift_history.append({"time": time_str, "score": drift_score})
+            if len(drift_history) > 40:
+                drift_history.pop(0)
+                
+            # Recalculate metrics and broadcast
+            h_metrics = calculate_metrics_from_cm(hybrid_cm)
+            b_metrics = calculate_metrics_from_cm(baseline_cm)
+            
+            eval_payload = {
+                "topic": "netguard_rohit_77/evaluation",
+                "hybrid_cm": hybrid_cm,
+                "baseline_cm": baseline_cm,
+                "hybrid_metrics": h_metrics,
+                "baseline_metrics": b_metrics,
+                "drift_score": drift_score,
+                "drift_history": drift_history,
+                "total_samples": sum(sum(row) for row in hybrid_cm),
+                "classes": CLASSES
+            }
+            
+            eval_out = json.dumps(eval_payload)
+            if _loop:
+                asyncio.run_coroutine_threadsafe(broadcast(eval_out), _loop)
 
             # ── Publish physical alert to ESP32 nodes via MQTT ───────────────
             if is_attack:
@@ -249,8 +414,8 @@ async def inference_loop():
                         "label":      pred_label,
                         "confidence": confidence,
                     })
-                    mqtt_client.publish("netguard/alerts", alert_payload)
-                    print(f"[ALERT] Published to netguard/alerts -> {pred_label} ({confidence}%)")
+                    mqtt_client.publish("netguard_rohit_77/alerts", alert_payload)
+                    print(f"[ALERT] Published to netguard_rohit_77/alerts -> {pred_label} ({confidence}%)")
 
                 # ── Auto-generate Incident Narrative via RAG (60s cooldown) ──
                 incident_age = time.time() - _last_incident_time
@@ -267,8 +432,8 @@ async def inference_loop():
                         "label":      "NORMAL",
                         "confidence": confidence,
                     })
-                    mqtt_client.publish("netguard/alerts", alert_payload)
-                    print(f"[ALERT] Published to netguard/alerts -> NORMAL / ALL_CLEAR")
+                    mqtt_client.publish("netguard_rohit_77/alerts", alert_payload)
+                    print(f"[ALERT] Published to netguard_rohit_77/alerts -> NORMAL / ALL_CLEAR")
 
             print(f"[ML] {pred_label} ({confidence}%) | rate={feats['packet_rate']} iat={feats['mean_inter_arrival_ms']}ms dup={feats['duplicate_ratio']}")
 
@@ -326,7 +491,7 @@ async def _generate_incident_narrative(label: str, confidence: float, feats: dic
             "label": label,
             "ts":    datetime.now(IST).strftime("%H:%M:%S IST"),
         }
-        out = json.dumps({"topic": "netguard/incident", **latest_incident})
+        out = json.dumps({"topic": "netguard_rohit_77/incident", **latest_incident})
         await broadcast(out)
         print(f"[INCIDENT] Narrative generated and broadcast for {label}")
     except Exception as e:
@@ -338,15 +503,68 @@ def ist_hour() -> float:
     n = datetime.now(IST)
     return n.hour + n.minute / 60.0 + n.second / 3600.0
 
-# ── MQTT ──────────────────────────────────────────────────────────────────────
+# ── MQTT (Real Devices) ───────────────────────────────────────────────────────
 def on_connect(client, userdata, flags, rc, p=None):
-    print(f"[MQTT] Connected rc={rc}")
-    client.subscribe("netguard/#")
+    print(f"[MQTT] Real-device client connected rc={rc}")
+    client.subscribe("netguard_rohit_77/#")
     publish_timesync(client)
+
+# ── MQTT (50-Node Simulator) ─────────────────────────────────────────────────
+def on_connect_sim(client, userdata, flags, rc, p=None):
+    print(f"[MQTT-SIM] Simulator client connected rc={rc}")
+    client.subscribe("netguard_50node/#")
+
+def on_message_sim(client, userdata, msg):
+    """Handle simulator messages — bypass packet_buffer, forward directly to WS."""
+    global sim_topology, sim_node_states
+    try:
+        topic = msg.topic
+        raw = msg.payload.decode()
+        data = json.loads(raw)
+
+        # Store topology for new WS clients
+        if topic == "netguard_50node/topology":
+            sim_topology = data
+            out = json.dumps({"topic": "netguard_50node/topology", **data})
+            if _loop:
+                asyncio.run_coroutine_threadsafe(broadcast(out), _loop)
+            return
+
+        # Store node status summary
+        if topic == "netguard_50node/status":
+            sim_node_states = data.get("node_states", {})
+            out = json.dumps(data)
+            if _loop:
+                asyncio.run_coroutine_threadsafe(broadcast(out), _loop)
+            return
+
+        # Forward attacker packets
+        if topic == "netguard_50node/attacker":
+            out = json.dumps({"topic": "netguard_50node/attacker", **data})
+            if _loop:
+                asyncio.run_coroutine_threadsafe(broadcast(out), _loop)
+            return
+
+        # Forward device sensor data
+        if topic.startswith("netguard_50node/device"):
+            out = json.dumps({"topic": topic, **data})
+            if _loop:
+                asyncio.run_coroutine_threadsafe(broadcast(out), _loop)
+            return
+
+        # Forward junk topics (topic bomb)
+        if topic.startswith("netguard_50node/junk_"):
+            out = json.dumps({"topic": "netguard_50node/attacker", "mode": "TOPIC_BOMB", **data})
+            if _loop:
+                asyncio.run_coroutine_threadsafe(broadcast(out), _loop)
+            return
+
+    except Exception as e:
+        print(f"[MQTT-SIM] Error: {e}")
 
 def publish_timesync(client):
     h = ist_hour()
-    client.publish("netguard/timesync", json.dumps({"type": "timesync", "ist_hour": round(h, 4)}))
+    client.publish("netguard_rohit_77/timesync", json.dumps({"type": "timesync", "ist_hour": round(h, 4)}))
     print(f"[TimeSync] {h:.2f}")
 
 def on_message(client, userdata, msg):
@@ -360,67 +578,77 @@ def on_message(client, userdata, msg):
         last_messages.append({"topic": topic, "payload": raw[:200], "ts": datetime.now(IST).strftime("%H:%M:%S")})
         if len(last_messages) > 20: last_messages.pop(0)
 
-        if topic == "netguard/timereq":
+        if topic == "netguard_rohit_77/timereq":
             publish_timesync(client); return
 
-        if topic == "netguard/attacker" or data.get("mode") in ["DATA_POISON", "TOPIC_BOMB"]:
-            profiler.track_packet(now)
-            # Buffer packet for ML window
-            packet_buffer.append({
-                "ts":   now,
-                "seq":  int(data.get("seq", -1)),
-                "mode": data.get("mode", "NORMAL"),
-            })
-            # Trim to last 60s
-            cutoff = now - 60
-            while packet_buffer and packet_buffer[0]["ts"] < cutoff:
-                packet_buffer.popleft()
+        # Extract device ID
+        device = data.get("device")
+        if not device:
+            if topic == "netguard_rohit_77/device1": device = "esp32_1"
+            elif topic == "netguard_rohit_77/device2": device = "esp32_2"
+            elif topic == "netguard_rohit_77/attacker": device = "esp32_3"
+            else: device = topic.split("/")[-1]
 
-        if topic == "netguard/attacker":
+        # Buffer packet for ML window
+        packet_buffer.append({
+            "ts":     now,
+            "seq":    int(data.get("seq", -1)),
+            "mode":   data.get("mode", "NORMAL"),
+            "device": device,
+        })
+        # Trim to last 60s
+        cutoff = now - 60
+        while packet_buffer and packet_buffer[0]["ts"] < cutoff:
+            packet_buffer.popleft()
+
+        # Track packet in statistical profiler
+        profiler.track_packet(device, now)
+
+        if topic == "netguard_rohit_77/attacker":
             # Raw packet → frontend (for feed/trust updates)
-            recent  = [p for p in packet_buffer if now - p["ts"] <= 5]
+            recent  = [p for p in packet_buffer if now - p["ts"] <= 5 and p.get("device") == device]
             pkt_rate= round(len(recent) / 5, 1)
             out = json.dumps({
                 "topic": topic, "mode": data.get("mode", "NORMAL"),
                 "seq": data.get("seq", 0), "pkt_rate": pkt_rate,
                 "iat": 0, "manual": data.get("manual", False),
+                "device": device
             })
 
-        elif topic == "netguard/device1":
-            profiler.track_packet(now)
+        elif topic == "netguard_rohit_77/device1" or "temp" in data:
             hum_val = data.get("humidity") if data.get("humidity") is not None else data.get("hum")
             temp_val = data.get("temp")
-            out = json.dumps({"topic": topic, "temp": temp_val, "humidity": hum_val, "ist_hour": data.get("ist_hour"), "synced": data.get("synced", False)})
+            out = json.dumps({"topic": "netguard_rohit_77/device1", "temp": temp_val, "humidity": hum_val, "ist_hour": data.get("ist_hour"), "synced": data.get("synced", False), "device": device})
             
-            # Mathematically track payload for Data Poisoning
-            is_poison = profiler.track_payload(temp_val)
+            # Mathematically track payload for Data Poisoning per device
+            is_poison = profiler.track_payload(device, temp_val)
             
             # If Z-Score indicates a spoofed payload, simulate an attacker feed update
             if is_poison or data.get("mode") == "DATA_POISON":
                 # Inject a poisoned packet into the flow buffer so the inference loop sees it
-                packet_buffer.append({"ts": now, "seq": int(data.get("seq", -1)), "mode": "DATA_POISON"})
-                recent  = [p for p in packet_buffer if now - p["ts"] <= 5]
+                packet_buffer.append({"ts": now, "seq": int(data.get("seq", -1)), "mode": "DATA_POISON", "device": device})
+                recent  = [p for p in packet_buffer if now - p["ts"] <= 5 and p.get("device") == device]
                 pkt_rate= round(len(recent) / 5, 1)
                 attacker_out = json.dumps({
-                    "topic": "netguard/attacker", "mode": "DATA_POISON",
+                    "topic": "netguard_rohit_77/attacker", "mode": "DATA_POISON",
                     "seq": data.get("seq", 0), "pkt_rate": pkt_rate,
                     "iat": 0, "manual": data.get("manual", False),
+                    "device": device
                 })
                 if _loop:
                     asyncio.run_coroutine_threadsafe(broadcast(attacker_out), _loop)
 
-        elif topic == "netguard/device2":
-            profiler.track_packet(now)
-            out = json.dumps({"topic": topic, "light": data.get("light"), "ist_hour": data.get("ist_hour"), "synced": data.get("synced", False)})
+        elif topic == "netguard_rohit_77/device2" or "light" in data:
+            out = json.dumps({"topic": "netguard_rohit_77/device2", "light": data.get("light"), "ist_hour": data.get("ist_hour"), "synced": data.get("synced", False), "device": device})
 
-        elif topic.startswith("netguard/junk_") or data.get("mode") == "TOPIC_BOMB":
-            profiler.track_packet(now)
-            recent  = [p for p in packet_buffer if now - p["ts"] <= 5]
+        elif topic.startswith("netguard_rohit_77/junk_") or data.get("mode") == "TOPIC_BOMB":
+            recent  = [p for p in packet_buffer if now - p["ts"] <= 5 and p.get("device") == device]
             pkt_rate= round(len(recent) / 5, 1)
             out = json.dumps({
-                "topic": "netguard/attacker", "mode": "TOPIC_BOMB",
+                "topic": "netguard_rohit_77/attacker", "mode": "TOPIC_BOMB",
                 "seq": data.get("seq", 0), "pkt_rate": pkt_rate,
                 "iat": 0, "manual": data.get("manual", False),
+                "device": device
             })
 
         else:
@@ -450,6 +678,11 @@ mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, "netguard-backend")
 mqtt_client.on_connect = on_connect
 mqtt_client.on_message = on_message
 
+# Second MQTT client for 50-node simulator (isolated namespace)
+sim_mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, "netguard-sim-backend")
+sim_mqtt_client.on_connect = on_connect_sim
+sim_mqtt_client.on_message = on_message_sim
+
 @app.on_event("startup")
 async def startup():
     global _loop
@@ -459,10 +692,18 @@ async def startup():
         mqtt_client.connect("broker.hivemq.com", 1883, 60)
         mqtt_client.loop_forever()
 
+    def run_sim_mqtt():
+        try:
+            sim_mqtt_client.connect("broker.hivemq.com", 1883, 60)
+            sim_mqtt_client.loop_forever()
+        except Exception as e:
+            print(f"[MQTT-SIM] Could not connect simulator client: {e}")
+
     threading.Thread(target=run_mqtt, daemon=True).start()
+    threading.Thread(target=run_sim_mqtt, daemon=True).start()
     asyncio.create_task(timesync_loop())
     asyncio.create_task(inference_loop())
-    print(f"[Startup] IST={ist_hour():.2f} | Model={'loaded' if model else 'MISSING'}")
+    print(f"[Startup] IST={ist_hour():.2f} | Model={'loaded' if model else 'MISSING'} | Sim client enabled")
 
 # ── WebSocket ─────────────────────────────────────────────────────────────────
 @app.websocket("/ws/live")
@@ -472,11 +713,35 @@ async def ws_live(ws: WebSocket):
     print(f"[WS] Connected. Total: {len(connected_ws)}")
     try:
         h = ist_hour()
-        await ws.send_text(json.dumps({"topic": "netguard/system", "ist_hour": round(h, 2), "ist_time": datetime.now(IST).strftime("%H:%M:%S")}))
+        await ws.send_text(json.dumps({"topic": "netguard_rohit_77/system", "ist_hour": round(h, 2), "ist_time": datetime.now(IST).strftime("%H:%M:%S")}))
         # Send latest inference immediately
         if latest_inference["label"] != "AWAITING":
-            await ws.send_text(json.dumps({"topic": "netguard/inference", **latest_inference}))
-    except Exception: pass
+            await ws.send_text(json.dumps({"topic": "netguard_rohit_77/inference", **latest_inference}))
+        
+        # Send initial evaluation stats immediately
+        h_metrics = calculate_metrics_from_cm(hybrid_cm)
+        b_metrics = calculate_metrics_from_cm(baseline_cm)
+        eval_payload = {
+            "topic": "netguard_rohit_77/evaluation",
+            "hybrid_cm": hybrid_cm,
+            "baseline_cm": baseline_cm,
+            "hybrid_metrics": h_metrics,
+            "baseline_metrics": b_metrics,
+            "drift_score": drift_score,
+            "drift_history": drift_history,
+            "total_samples": sum(sum(row) for row in hybrid_cm),
+            "classes": CLASSES
+        }
+        await ws.send_text(json.dumps(eval_payload))
+
+        # Send simulator toggle state & cached topology
+        await ws.send_text(json.dumps({"topic": "netguard_toggle/simulated", "show": SHOW_SIMULATED}))
+        if sim_topology:
+            await ws.send_text(json.dumps({"topic": "netguard_50node/topology", **sim_topology}))
+        if sim_node_states:
+            await ws.send_text(json.dumps({"topic": "netguard_50node/status", "node_states": sim_node_states}))
+    except Exception as e:
+        print(f"[WS] Error sending initial payload: {e}")
 
     try:
         while True:
@@ -495,17 +760,41 @@ class ModeCommand(BaseModel):
 VALID_MODES = {"NORMAL", "DOS_FLOOD", "REPLAY_ATTACK", "SLOW_RATE_ATTACK",
                "DATA_POISON", "TOPIC_BOMB", "EVASION_ATTACK"}
 
+@app.post("/evaluation/reset")
+async def reset_evaluation():
+    global hybrid_cm, baseline_cm, drift_history, drift_score
+    hybrid_cm = [[0] * 7 for _ in range(7)]
+    baseline_cm = [[0] * 7 for _ in range(7)]
+    drift_history.clear()
+    drift_score = 0.0
+    
+    # Broadcast clear to clients
+    eval_payload = {
+        "topic": "netguard_rohit_77/evaluation",
+        "hybrid_cm": hybrid_cm,
+        "baseline_cm": baseline_cm,
+        "hybrid_metrics": {"accuracy": 0.0, "precision": 0.0, "recall": 0.0, "f1": 0.0},
+        "baseline_metrics": {"accuracy": 0.0, "precision": 0.0, "recall": 0.0, "f1": 0.0},
+        "drift_score": 0.0,
+        "drift_history": [],
+        "total_samples": 0,
+        "classes": CLASSES
+    }
+    await broadcast(json.dumps(eval_payload))
+    print("[Evaluation] Metrics reset successfully.")
+    return {"status": "ok"}
+
 @app.post("/attacker/mode")
 async def set_mode(cmd: ModeCommand):
     mode = cmd.mode.upper().strip()
     if mode not in VALID_MODES:
         return {"status": "error", "message": f"Unknown mode: {mode}"}
-    # Publish to netguard/cmd — Arduino mqttCallback parser expects this exact JSON
+    # Publish to netguard_rohit_77/cmd — Arduino mqttCallback parser expects this exact JSON
     mqtt_client.publish(
-        "netguard/cmd",
+        "netguard_rohit_77/cmd",
         json.dumps({"command": "SET_MODE", "mode": mode})
     )
-    print(f"[CMD] SET_MODE -> {mode} published to netguard/cmd")
+    print(f"[CMD] SET_MODE -> {mode} published to netguard_rohit_77/cmd")
     return {"status": "ok", "mode": mode}
 
 # ── Simulation endpoint (injects synthetic packets for demo/offline mode) ──────
@@ -556,7 +845,7 @@ async def simulate(cmd: ModeCommand):
     recent   = [p for p in packet_buffer if now - p["ts"] <= 5]
     pkt_rate = round(len(recent) / 5, 1)
     out = json.dumps({
-        "topic": "netguard/attacker", "mode": mode,
+        "topic": "netguard_rohit_77/attacker", "mode": mode,
         "seq": seq, "pkt_rate": pkt_rate, "iat": 0, "manual": True,
     })
     await broadcast(out)
@@ -565,7 +854,43 @@ async def simulate(cmd: ModeCommand):
 
 @app.post("/attacker/release")
 async def release():
-    mqtt_client.publish("netguard/cmd", json.dumps({"command": "RELEASE"}))
+    mqtt_client.publish("netguard_rohit_77/cmd", json.dumps({"command": "RELEASE"}))
+    return {"status": "ok"}
+
+# ── Simulator Toggle & Attack Control ─────────────────────────────────────────
+class TogglePayload(BaseModel):
+    show: bool
+
+@app.post("/toggle/simulated")
+async def toggle_simulated(payload: TogglePayload):
+    global SHOW_SIMULATED
+    SHOW_SIMULATED = payload.show
+    msg = json.dumps({"topic": "netguard_toggle/simulated", "show": SHOW_SIMULATED})
+    await broadcast(msg)
+    print(f"[Toggle] Simulated view set to: {SHOW_SIMULATED}")
+    return {"status": "ok", "show": SHOW_SIMULATED}
+
+class SimAttackPayload(BaseModel):
+    mode: str
+    target_node: int | None = None
+
+@app.post("/simulator/attack")
+async def simulator_attack(payload: SimAttackPayload):
+    """Launch an attack on the 50-node simulator via MQTT command."""
+    mode = payload.mode.upper().strip()
+    if mode not in VALID_MODES:
+        return {"status": "error", "message": f"Unknown mode: {mode}"}
+    cmd = {"command": "SET_MODE", "mode": mode}
+    if payload.target_node is not None:
+        cmd["target_node"] = payload.target_node
+    sim_mqtt_client.publish("netguard_50node/cmd", json.dumps(cmd))
+    print(f"[SIM-CMD] Attack {mode} sent to simulator (target={payload.target_node})")
+    return {"status": "ok", "mode": mode, "target_node": payload.target_node}
+
+@app.post("/simulator/release")
+async def simulator_release():
+    sim_mqtt_client.publish("netguard_50node/cmd", json.dumps({"command": "RELEASE"}))
+    print("[SIM-CMD] Simulator released to NORMAL")
     return {"status": "ok"}
 
 # ── RAG AI Security Analyst Chatbot ──────────────────────────────────────────

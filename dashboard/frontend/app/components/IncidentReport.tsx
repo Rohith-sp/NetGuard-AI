@@ -1,5 +1,6 @@
 "use client";
 import { IncidentState } from "../hooks/useLiveData";
+import { LightningIcon } from "./Icons";
 
 interface Props { incident: IncidentState; }
 
@@ -16,8 +17,8 @@ export default function IncidentReport({ incident }: Props) {
   return (
     <div className="card incident-card" style={{ borderLeft: `3px solid ${color}` }}>
       <div className="card-header">
-        <span className="card-title">
-          <span style={{ color, marginRight: 8 }}>⚡</span>
+        <span className="card-title" style={{ display: "flex", alignItems: "center" }}>
+          <LightningIcon width={14} height={14} color={color} style={{ marginRight: 8 }} />
           AI Incident Report
         </span>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>

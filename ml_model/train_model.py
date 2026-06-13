@@ -1,103 +1,158 @@
 """
-Retrains the NetGuard Random Forest model using the same 10-feature schema
-that the FastAPI backend (main.py) uses for live inference.
+Retrains the NetGuard model using the new scale-invariant feature extraction
+and upgrades the architecture to a Heterogeneous Ensemble (XGBoost + Random Forest + MLP).
 
-Features match extract_features() in backend/main.py exactly.
+Includes a wrapper class to maintain backward compatibility with the FastAPI backend.
 """
 import os
+import glob
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import VotingClassifier, RandomForestClassifier
+from sklearn.neural_network import MLPClassifier
+from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import classification_report, accuracy_score
 import joblib
 
-# ── Paths ─────────────────────────────────────────────────────────────────────
-import glob
-DATA_DIR   = r"C:\IOT EL\NetGuard-AI\real_time_collector\collected_datasets"
-list_of_files = glob.glob(os.path.join(DATA_DIR, "*.csv"))
-if not list_of_files:
-    raise FileNotFoundError("No CSV files found in " + DATA_DIR)
-CSV_PATH = max(list_of_files, key=os.path.getctime)
-MODEL_OUT  = r"C:\IOT EL\NetGuard-AI\ml_model\netguard_model.pkl"
+# ── Relative Paths ────────────────────────────────────────────────────────────
+import sys
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "real_time_collector", "collected_datasets"))
+MODEL_OUT = os.path.join(SCRIPT_DIR, "netguard_model.pkl")
 
-# ── Feature engineering — mirrors backend extract_features() exactly ──────────
+BACKEND_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "dashboard", "backend"))
+if BACKEND_DIR not in sys.path:
+    sys.path.append(BACKEND_DIR)
+
+from model_wrapper import EnsembleClassifierWrapper
+
+# Helper functions
+def safe_mean(v): return sum(v) / len(v) if v else 0.0
+def safe_std(v):
+    if len(v) < 2: return 0.0
+    m = safe_mean(v)
+    return np.std(v)
+
+# ── Scale-invariant Feature Engineering ──────────────────────────────────────
 def build_features_from_csv(df: pd.DataFrame, window_sec: float = 10.0) -> pd.DataFrame:
     """
-    Group packets into 10-second sliding windows per device, then compute
-    the same 10 features the backend extracts live from the packet_buffer.
+    Group packets into 10-second sliding windows, group by device,
+    and compute extreme scale-invariant values.
     """
     df = df.copy()
     df["ts"] = pd.to_datetime(df["timestamp_utc"]).astype("int64") / 1e9  # unix seconds
 
-    # Only use attacker node or explicitly labeled attack packets that might spoof/broadcast
-    atk = df[(df["topic"] == "netguard/attacker") | (df["label"] == "DATA_POISON") | (df["label"] == "TOPIC_BOMB")].copy()
-    atk = atk.sort_values("ts").reset_index(drop=True)
+    # Exclude command and timesync control messages
+    df_filtered = df[~df["topic"].isin(["netguard_rohit_77/cmd", "netguard_rohit_77/timesync"])].copy()
+    df_filtered = df_filtered.sort_values("ts").reset_index(drop=True)
 
     rows = []
     step = 1.0  # stride (seconds)
-    t_min = atk["ts"].min()
-    t_max = atk["ts"].max()
+    t_min = df_filtered["ts"].min()
+    t_max = df_filtered["ts"].max()
     t = t_min + window_sec
 
     while t <= t_max + step:
-        window = atk[(atk["ts"] >= t - window_sec) & (atk["ts"] < t)]
+        window = df_filtered[(df_filtered["ts"] >= t - window_sec) & (df_filtered["ts"] < t)]
         if len(window) < 1:
             t += step
             continue
 
-        timestamps = sorted(window["ts"].tolist())
-        if len(timestamps) > 1:
-            iats = [(timestamps[i+1] - timestamps[i]) * 1000 for i in range(len(timestamps)-1)]
-        else:
-            iats = [window_sec * 1000]  # single-packet window = huge IAT (slow rate signature)
+        # Group window by device
+        by_device = {}
+        for _, r in window.iterrows():
+            dev = r["device"]
+            if not isinstance(dev, str):
+                dev = str(r["topic"]).split("/")[-1]
+            if dev not in by_device:
+                by_device[dev] = []
+            by_device[dev].append(r)
 
-        seqs = [int(s) for s in window["seq"] if s >= 0]
-        seq_incs = [seqs[i+1] - seqs[i] for i in range(len(seqs)-1)] if len(seqs) > 1 else [1]
+        device_counts = []
+        device_rates = []
+        device_mean_iats = []
+        device_std_iats = []
+        device_min_iats = []
+        device_max_iats = []
+        device_dup_ratios = []
+        device_mean_seq_incs = []
+        device_std_seq_incs = []
+        device_unique_modes = []
 
-        seen, dups = set(), 0
-        for s in seqs:
-            if s in seen: dups += 1
-            seen.add(s)
-        dup_ratio = dups / max(len(window), 1)
+        for dev, dev_pkts in by_device.items():
+            dev_pkts = sorted(dev_pkts, key=lambda x: x["ts"])
+            dn = len(dev_pkts)
+            device_counts.append(dn)
+            device_rates.append(dn / window_sec)
 
-        n = len(window)
+            # IATs
+            if dn > 1:
+                dev_iats = [(dev_pkts[i+1]["ts"] - dev_pkts[i]["ts"]) * 1000 for i in range(dn-1)]
+            else:
+                dev_iats = [window_sec * 1000]
+
+            device_mean_iats.append(safe_mean(dev_iats))
+            device_std_iats.append(safe_std(dev_iats))
+            device_min_iats.append(min(dev_iats))
+            device_max_iats.append(max(dev_iats))
+
+            # Seqs
+            dev_seqs = [int(p["seq"]) for p in dev_pkts if p["seq"] >= 0]
+            if len(dev_seqs) > 1:
+                dev_seq_incs = [dev_seqs[i+1] - dev_seqs[i] for i in range(len(dev_seqs)-1)]
+            else:
+                dev_seq_incs = [1]
+            
+            device_mean_seq_incs.append(safe_mean(dev_seq_incs))
+            device_std_seq_incs.append(safe_std(dev_seq_incs))
+
+            # Duplicate ratio
+            seen, dups = set(), 0
+            for s in dev_seqs:
+                if s in seen: dups += 1
+                seen.add(s)
+            device_dup_ratios.append(dups / dn)
+
+            # Modes
+            device_unique_modes.append(len(set(p["mode"] for p in dev_pkts)))
 
         # Ground-truth label — majority vote within window
         label = window["label"].mode()[0]
 
         rows.append({
-            "packet_count":          n,
-            "packet_rate":           round(n / window_sec, 4),
-            "mean_inter_arrival_ms": round(np.mean(iats), 2),
-            "std_inter_arrival_ms":  round(np.std(iats), 2) if len(iats) > 1 else 0.0,
-            "min_inter_arrival_ms":  round(min(iats), 2),
-            "max_inter_arrival_ms":  round(max(iats), 2),
-            "duplicate_ratio":       round(dup_ratio, 4),
-            "seq_increment_mean":    round(np.mean(seq_incs), 4),
-            "seq_increment_std":     round(np.std(seq_incs), 4) if len(seq_incs) > 1 else 0.0,
-            "unique_modes":          int(window["mode"].nunique()),
+            "packet_count":          round(max(device_counts), 4),
+            "packet_rate":           round(max(device_rates), 4),
+            "mean_inter_arrival_ms": round(min(device_mean_iats), 2),
+            "std_inter_arrival_ms":  round(max(device_std_iats), 2),
+            "min_inter_arrival_ms":  round(min(device_min_iats), 2),
+            "max_inter_arrival_ms":  round(min(device_max_iats), 2),
+            "duplicate_ratio":       round(max(device_dup_ratios), 4),
+            "seq_increment_mean":    round(min(device_mean_seq_incs), 4),
+            "seq_increment_std":     round(max(device_std_seq_incs), 4),
+            "unique_modes":          int(max(device_unique_modes)),
             "label":                 label,
         })
         t += step
 
     return pd.DataFrame(rows)
 
-
 def main():
     print("\n==========================================================")
-    print("   NETGUARD AI — MODEL RETRAINING (10-Feature Schema)   ")
+    print("   NETGUARD AI — MODEL ENSEMBLE TRAINING (Scale-Invariant) ")
     print("==========================================================\n")
 
     # 1. Load raw CSV
-    print(f"[*] Loading dataset: {os.path.basename(CSV_PATH)}")
-    df = pd.read_csv(CSV_PATH)
+    list_of_files = glob.glob(os.path.join(DATA_DIR, "*.csv"))
+    if not list_of_files:
+        raise FileNotFoundError("No CSV files found in " + DATA_DIR)
+    csv_path = max(list_of_files, key=os.path.getctime)
+    print(f"[*] Loading dataset: {os.path.basename(csv_path)}")
+    df = pd.read_csv(csv_path)
     print(f"    Total raw packets: {len(df)}")
 
-    # 2. (Removed label filtering to preserve ALL attack classes based on ground truth)
-
-    # 3. Build windowed feature matrix
-    print("[*] Building 10-second windowed feature vectors…")
+    # 2. Build windowed feature matrix
+    print("[*] Building 10-second scale-invariant windowed features…")
     feat_df = build_features_from_csv(df, window_sec=10.0)
     print(f"    Windows generated: {len(feat_df)}")
     print("\n[*] Class distribution (windows):")
@@ -107,7 +162,7 @@ def main():
         print("[ERROR] Not enough windows — check that the CSV path is correct.")
         return
 
-    # 4. Train/test split
+    # 3. Target label encoding
     FEATURE_COLS = [
         "packet_count", "packet_rate",
         "mean_inter_arrival_ms", "std_inter_arrival_ms",
@@ -118,38 +173,65 @@ def main():
     X = feat_df[FEATURE_COLS]
     y = feat_df["label"]
 
+    le = LabelEncoder()
+    y_encoded = le.fit_transform(y)
+
     print(f"\n[*] Splitting 80/20 (stratified)…")
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
+        X, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded
     )
 
-    # 5. Train
-    print("[*] Training Random Forest (200 trees)…")
-    clf = RandomForestClassifier(n_estimators=200, random_state=42, n_jobs=-1, max_depth=None)
-    clf.fit(X_train, y_train)
+    # 4. Define Base Classifiers
+    rf = RandomForestClassifier(n_estimators=150, random_state=42, n_jobs=-1)
+    mlp = MLPClassifier(hidden_layer_sizes=(100, 50), max_iter=1000, random_state=42)
+    
+    estimators = [('rf', rf), ('mlp', mlp)]
 
-    # 6. Evaluate
+    # 5. Optional XGBoost addition
+    try:
+        from xgboost import XGBClassifier
+        xgb = XGBClassifier(n_estimators=150, random_state=42, eval_metric='mlogloss')
+        estimators.append(('xgb', xgb))
+        print("[*] XGBoost successfully added to the Ensemble.")
+    except ImportError:
+        print("[WARN] xgboost not installed in active environment — training with RF + MLP only.")
+
+    # 6. Fit Voting Ensemble
+    print("[*] Training Soft-Voting Ensemble Classifier…")
+    voting_clf = VotingClassifier(estimators=estimators, voting='soft')
+    voting_clf.fit(X_train, y_train)
+
+    # 7. Evaluate
     print("\n==========================================================")
     print("                 MODEL EVALUATION RESULTS                 ")
     print("==========================================================")
-    y_pred = clf.predict(X_test)
+    y_pred = voting_clf.predict(X_test)
     acc = accuracy_score(y_test, y_pred)
     print(f"\n[+] Overall Accuracy: {acc * 100:.2f}%")
     print("\n[+] Classification Report:")
-    print(classification_report(y_test, y_pred))
+    print(classification_report(y_test, y_pred, target_names=le.classes_))
 
-    # Feature importances
-    print("[+] Feature Importances (top 5):")
-    importances = sorted(zip(FEATURE_COLS, clf.feature_importances_), key=lambda x: -x[1])
+    # Feature importances from Random Forest
+    rf_fitted = voting_clf.named_estimators_['rf']
+    print("[+] Feature Importances (Random Forest fallback, top 5):")
+    importances = sorted(zip(FEATURE_COLS, rf_fitted.feature_importances_), key=lambda x: -x[1])
     for feat, imp in importances[:5]:
         print(f"    {feat:<28} {imp*100:.1f}%")
 
-    # 7. Save
-    joblib.dump(clf, MODEL_OUT)
-    print(f"\n[SUCCESS] Model saved to: {MODEL_OUT}")
-    print(f"[INFO] Classes: {list(clf.classes_)}")
-    print(f"[INFO] This model is now compatible with the dashboard backend.\n")
+    # Calculate feature baseline mean and std
+    feature_means = {}
+    feature_stds = {}
+    for col in FEATURE_COLS:
+        feature_means[col] = float(X[col].mean())
+        feature_stds[col] = float(X[col].std())
+        if feature_stds[col] == 0.0:
+            feature_stds[col] = 1.0  # Avoid division by zero
 
+    # 8. Save wrapped model
+    wrapped_model = EnsembleClassifierWrapper(voting_clf, le, feature_means, feature_stds)
+    joblib.dump(wrapped_model, MODEL_OUT)
+    print(f"\n[SUCCESS] Scale-invariant Ensemble model saved to: {MODEL_OUT}")
+    print(f"[INFO] Classes: {list(le.classes_)}\n")
 
 if __name__ == "__main__":
     main()
