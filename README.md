@@ -55,7 +55,7 @@ What makes it notable is the combination of physical hardware, a cloud MQTT brok
 | Frontend | Next.js 15, React 19, TypeScript | SOC dashboard SPA |
 | Charts | Recharts | Anomaly score, packet rate, sensor time-series |
 | Styling | Vanilla CSS (design tokens) | Full custom design system — no Tailwind |
-| Fonts | DM Sans, JetBrains Mono (Google Fonts) | Typography |
+| Fonts | Inter (variable, opsz), JetBrains Mono (Google Fonts) | Fluid type scale with optical sizing and tabular numerals |
 | Package Manager | npm | Frontend dependency management |
 | Version Control | Git / GitHub | Source control |
 
