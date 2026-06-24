@@ -100,6 +100,8 @@ latest_incident: dict = {"text": "", "label": "", "ts": ""}
 _last_incident_time: float = 0.0   # cooldown: generate max once per 60s
 _was_attack: bool = False
 
+latest_gas_ppm: float | None = None
+
 
 # ── Feature extraction from packet buffer ────────────────────────────────────
 def safe_mean(v): return sum(v) / len(v) if v else 0.0
@@ -380,20 +382,32 @@ def on_message(client, userdata, msg):
             # Raw packet → frontend (for feed/trust updates)
             recent  = [p for p in packet_buffer if now - p["ts"] <= 5]
             pkt_rate= round(len(recent) / 5, 1)
+            gas_ppm = data.get("gas_ppm")
+            if gas_ppm is not None:
+                global latest_gas_ppm
+                latest_gas_ppm = gas_ppm
+            
             out = json.dumps({
                 "topic": topic, "mode": data.get("mode", "NORMAL"),
                 "seq": data.get("seq", 0), "pkt_rate": pkt_rate,
                 "iat": 0, "manual": data.get("manual", False),
+                "gas_ppm": gas_ppm,
             })
+            if gas_ppm is not None:
+                profiler.track_payload("esp32_3", "gas_ppm", gas_ppm)
 
         elif topic == "netguard/device1":
             profiler.track_packet(now)
             hum_val = data.get("humidity") if data.get("humidity") is not None else data.get("hum")
             temp_val = data.get("temp")
-            out = json.dumps({"topic": topic, "temp": temp_val, "humidity": hum_val, "ist_hour": data.get("ist_hour"), "synced": data.get("synced", False)})
+            gas_ppm = data.get("gas_ppm")
+            out = json.dumps({"topic": topic, "temp": temp_val, "humidity": hum_val, "gas_ppm": gas_ppm, "ist_hour": data.get("ist_hour"), "synced": data.get("synced", False)})
             
             # Mathematically track payload for Data Poisoning
-            is_poison = profiler.track_payload(temp_val)
+            is_poison_temp = profiler.track_payload("esp32_1", "temp", temp_val)
+            is_poison_hum = profiler.track_payload("esp32_1", "humidity", hum_val)
+            is_poison_gas = profiler.track_payload("esp32_1", "gas_ppm", gas_ppm)
+            is_poison = is_poison_temp or is_poison_hum or is_poison_gas
             
             # If Z-Score indicates a spoofed payload, simulate an attacker feed update
             if is_poison or data.get("mode") == "DATA_POISON":
@@ -446,6 +460,25 @@ async def timesync_loop():
         publish_timesync(mqtt_client)
         await asyncio.sleep(300)
 
+async def gas_explanation_loop():
+    from rag import call_groq_llm
+    await asyncio.sleep(10) # Initial delay
+    while True:
+        try:
+            if latest_gas_ppm is not None:
+                prompt = f"The current MQ135 gas sensor reading is {latest_gas_ppm} PPM. Provide a single, very short 4-8 word sentence explaining if this air quality is good, moderate, or hazardous. Be extremely concise. No markdown."
+                explanation = await asyncio.to_thread(call_groq_llm, "You are a terse air quality expert.", prompt)
+                
+                if explanation:
+                    out = json.dumps({
+                        "topic": "netguard/gas_explanation",
+                        "explanation": explanation.strip()
+                    })
+                    await broadcast(out)
+        except Exception as e:
+            print(f"[Gas Explanation Loop] Error: {e}")
+        await asyncio.sleep(120)
+
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, "netguard-backend")
 mqtt_client.on_connect = on_connect
 mqtt_client.on_message = on_message
@@ -456,11 +489,17 @@ async def startup():
     _loop = asyncio.get_running_loop()
 
     def run_mqtt():
-        mqtt_client.connect("broker.hivemq.com", 1883, 60)
-        mqtt_client.loop_forever()
+        while True:
+            try:
+                mqtt_client.connect("broker.hivemq.com", 1883, 60)
+                mqtt_client.loop_forever()
+            except Exception as e:
+                print(f"[MQTT] Connection failed: {e}. Retrying in 5s...")
+                time.sleep(5)
 
     threading.Thread(target=run_mqtt, daemon=True).start()
     asyncio.create_task(timesync_loop())
+    asyncio.create_task(gas_explanation_loop())
     asyncio.create_task(inference_loop())
     print(f"[Startup] IST={ist_hour():.2f} | Model={'loaded' if model else 'MISSING'}")
 

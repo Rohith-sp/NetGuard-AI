@@ -3,7 +3,8 @@ import { useEffect, useState, useRef, useCallback } from "react";
 
 export interface NodeData {
   id: string; label: string; ip: string;
-  temp?: number; humidity?: number; light?: number;
+  temp?: number; humidity?: number; light?: number; gas_ppm?: number;
+  gas_explanation?: string;
   mode?: string; seq?: number;
   pktRate: number; trust: number;
   lastSeen: string; online: boolean;
@@ -21,7 +22,7 @@ export function useLiveData() {
   const [nodes, setNodes]       = useState<Record<string, NodeData>>({
     esp32_1: { id:"esp32_1", label:"ESP32_1 · DHT22",    ip:"netguard/device1",  pktRate:0, trust:94, lastSeen:"—", online:false, temp:0,   humidity:0 },
     esp32_2: { id:"esp32_2", label:"ESP32_2 · LDR",      ip:"netguard/device2",  pktRate:0, trust:91, lastSeen:"—", online:false, light:0 },
-    esp32_3: { id:"esp32_3", label:"ESP32_3 · Attacker", ip:"netguard/attacker", pktRate:0, trust:95, lastSeen:"—", online:false, mode:"AWAITING", seq:0 },
+    esp32_3: { id:"esp32_3", label:"ESP32_3 · Attacker", ip:"netguard/attacker", pktRate:0, trust:95, lastSeen:"—", online:false, mode:"AWAITING", seq:0, gas_ppm: 0, gas_explanation: "Initializing..." },
   });
   const [packets, setPackets]   = useState<PacketEntry[]>([]);
   const [alerts,  setAlerts]    = useState<AlertEntry[]>([]);
@@ -94,13 +95,21 @@ export function useLiveData() {
             return;
           }
 
+          if (d.topic === "netguard/gas_explanation") {
+            setNodes(n => ({
+              ...n,
+              esp32_3: { ...n.esp32_3, gas_explanation: d.explanation }
+            }));
+            return;
+          }
+
           // ── Attacker packet — update node card only (ML comes from inference) ──
           if (d.topic === "netguard/attacker") {
             const pktRate = d.pkt_rate ?? 0;
             pktRateRef.current.esp32_3 = pktRate;
             setNodes(n => ({
               ...n,
-              esp32_3: { ...n.esp32_3, mode: d.mode, seq: d.seq, pktRate, lastSeen: now, online: true }
+              esp32_3: { ...n.esp32_3, mode: d.mode, seq: d.seq, pktRate, gas_ppm: d.gas_ppm, lastSeen: now, online: true }
             }));
             const entry: PacketEntry = { id: ++pktIdRef.current, time: now, label: d.mode, device: "netguard/attacker", iat: 0 };
             setPackets(p => [entry, ...p].slice(0, 120));

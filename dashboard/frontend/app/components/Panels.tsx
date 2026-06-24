@@ -103,10 +103,10 @@ export function NodeRow({ n1, n2, n3, ml }: { n1: NodeData; n2: NodeData; n3: No
         </div>
       </div>
 
-      {/* PIR Motion Node (disguised) */}
+      {/* MQ135 Gas Sensor (Attacker Node) */}
       <div className="node-card">
         <div className="node-header">
-          <div><div className="node-id">ESP32_3 · PIR Motion</div><div className="node-ip">netguard/device3</div></div>
+          <div><div className="node-id">ESP32_3 · MQ135 Gas</div><div className="node-ip">netguard/device3</div></div>
           <div className="node-status">
             <div className={`status-dot ${n3.online ? "green" : "offline"}`} />
             <span style={{ color: n3.online ? "var(--green)" : "var(--text-3)", fontWeight: 500, fontSize: 12 }}>
@@ -115,9 +115,9 @@ export function NodeRow({ n1, n2, n3, ml }: { n1: NodeData; n2: NodeData; n3: No
           </div>
         </div>
         <div className="node-body">
-          <div className="node-stat-row"><span className="node-stat-label">Motion events</span><span className="node-stat-value">{n3.seq ?? 0}</span></div>
+          <div className="node-stat-row"><span className="node-stat-label">Gas Level (PPM)</span><span className="node-stat-value">{n3.gas_ppm != null ? `${n3.gas_ppm} PPM` : "—"}</span></div>
+          <div className="node-stat-row" style={{ marginTop: -4 }}><span className="node-stat-label" style={{ fontSize: 10, color: "var(--text-3)" }}>AI Analysis</span><span className="node-stat-value" style={{ fontSize: 10, color: "var(--amber)", fontWeight: 600, textAlign: "right", maxWidth: "65%", lineHeight: 1.2 }}>{n3.gas_explanation ?? "Waiting for Groq..."}</span></div>
           <div className="node-stat-row"><span className="node-stat-label">Packet rate</span><span className="node-stat-value">{n3.pktRate} pkt/s</span></div>
-          <div className="node-stat-row"><span className="node-stat-label">Sensor state</span><span className="node-stat-value">{n3.online ? (n3.pktRate > 5 ? "High Activity" : "Monitoring") : "—"}</span></div>
           <div className="trust-bar-wrap">
             <span className="trust-bar-label">Trust</span>
             <div className="trust-bar-track"><div className="trust-bar-fill" style={{ width: `${n3.trust}%`, background: n3.trust < 40 ? "var(--red)" : n3.trust < 70 ? "var(--amber)" : "var(--green)" }} /></div>
@@ -201,8 +201,8 @@ export function HeatmapPanel({ n1, n2, n3, ml }: { n1: NodeData; n2: NodeData; n
     { id: "ESP32_2", icon: "💡", label: "LDR Sensor", online: n2.online, trust: n2.trust,
       metric: `${n2.light ?? "—"} LUX`, sub: (n2.light ?? 0) > 500 ? "Daytime ☀" : "Nighttime 🌙",
       threat: n2.trust < 40, warn: n2.trust < 70 },
-    { id: "ESP32_3", icon: "📷", label: "PIR Motion", online: n3.online, trust: n3.trust,
-      metric: `${n3.pktRate} pkt/s`, sub: ml.isAttack ? ml.label.replace(/_/g, " ") : "Monitoring",
+    { id: "ESP32_3", icon: "💨", label: "MQ135 Gas", online: n3.online, trust: n3.trust,
+      metric: `${n3.gas_ppm ?? "—"} PPM`, sub: ml.isAttack ? ml.label.replace(/_/g, " ") : "Monitoring",
       threat: ml.isAttack || n3.trust < 40, warn: n3.trust < 70 },
   ];
   const atRisk = cells.filter(c => c.threat).length;

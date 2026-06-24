@@ -9,37 +9,45 @@ class StatisticalProfiler:
     """
     def __init__(self):
         # ── Payload Tracker (Data Poisoning) ──
-        self.temp_ema = None
-        self.temp_var = 1.0
+        self.device_ema = {} # device -> {sensor_type -> ema}
+        self.device_var = {} # device -> {sensor_type -> var}
         self.alpha = 0.2  # Smoothing factor
         
         # ── Time-Series Tracker (Slow Rate) ──
         self.global_packet_timestamps = deque(maxlen=5)
 
-    def track_payload(self, temp: float) -> bool:
+    def track_payload(self, device: str, sensor_type: str, value: float) -> bool:
         """
-        Calculates the Z-Score of an incoming temperature reading against a live
+        Calculates the Z-Score of an incoming sensor reading against a live
         Exponential Moving Average (EMA). Returns True if it's a massive outlier (Z > 3.0).
         """
-        if temp is None:
+        if value is None or not device or not sensor_type:
             return False
 
-        if self.temp_ema is None:
-            self.temp_ema = temp
+        if device not in self.device_ema:
+            self.device_ema[device] = {}
+            self.device_var[device] = {}
+
+        if sensor_type not in self.device_ema[device]:
+            self.device_ema[device][sensor_type] = value
+            self.device_var[device][sensor_type] = 1.0
             return False
+
+        ema = self.device_ema[device][sensor_type]
+        var = self.device_var[device][sensor_type]
 
         # Calculate Z-Score
-        std_dev = math.sqrt(self.temp_var)
-        if std_dev < 0.1:
-            std_dev = 0.1
+        std_dev = math.sqrt(var)
+        if std_dev < 1.0:
+            std_dev = 1.0
 
-        z_score = abs(temp - self.temp_ema) / std_dev
+        z_score = abs(value - ema) / std_dev
 
         # Update EMA & Variance only if NOT an outlier (prevents poisoning the baseline)
         if z_score < 3.0:
-            diff = temp - self.temp_ema
-            self.temp_ema += self.alpha * diff
-            self.temp_var = (1 - self.alpha) * (self.temp_var + self.alpha * diff ** 2)
+            diff = value - ema
+            self.device_ema[device][sensor_type] += self.alpha * diff
+            self.device_var[device][sensor_type] = (1 - self.alpha) * (var + self.alpha * diff ** 2)
 
         return z_score > 3.0
 

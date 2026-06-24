@@ -115,18 +115,39 @@ def run_attacker():
             atk_seq += 1
             replay_payload = None  # reset replay buffer when mode changes
 
-        payload = json.dumps({
-            "device": "esp32_3", "mode": atk_mode,
-            "seq": atk_seq, "manual": manual_lock
-        })
-
-        # Replay attack: keep re-sending the first captured packet
         if atk_mode == "REPLAY_ATTACK":
-            if replay_payload is None: replay_payload = payload
-            else:                       payload = replay_payload
+            if replay_payload is None:
+                payload_dict = {
+                    "device": "esp32_3", "mode": atk_mode,
+                    "seq": atk_seq, "manual": manual_lock,
+                    "gas_ppm": round(random.uniform(40.0, 150.0), 2)
+                }
+                replay_payload = json.dumps(payload_dict)
+            payload = replay_payload
+            topic = "netguard/attacker"
+        elif atk_mode == "DATA_POISON":
+            fakeTemp = round(random.uniform(-500, 1500), 2)
+            fakeHum = round(random.uniform(-200, 300), 2)
+            fakePPM = round(random.uniform(5000, 15000), 2)
+            payload = json.dumps({
+                "device": "esp32_1", "temp": fakeTemp, "humidity": fakeHum, 
+                "gas_ppm": fakePPM, "poisoned": True, "mode": atk_mode,
+                "seq": atk_seq, "manual": manual_lock
+            })
+            topic = "netguard/device1"
+        elif atk_mode == "TOPIC_BOMB":
+            payload = json.dumps({"device": "esp32_3", "mode": atk_mode, "garbage": True, "seq": atk_seq, "manual": manual_lock})
+            topic = f"netguard/junk_{random.randint(0, 1000)}"
+        else:
+            payload = json.dumps({
+                "device": "esp32_3", "mode": atk_mode,
+                "seq": atk_seq, "manual": manual_lock,
+                "gas_ppm": round(random.uniform(40.0, 150.0), 2)
+            })
+            topic = "netguard/attacker"
 
-        c.publish("netguard/attacker", payload)
-        print(f"[ATK] {payload}")
+        c.publish(topic, payload)
+        print(f"[ATK] {topic} -> {payload}")
 
         lo, hi = get_interval()
         time.sleep(random.uniform(lo, hi))

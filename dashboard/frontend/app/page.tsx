@@ -385,22 +385,52 @@ export default function Page() {
                 </div>
 
                 {/* SHAP indicator */}
-                {ml.shap && ml.shap.length > 0 && (
+                {ml.shap && ml.shap.length > 0 && (() => {
+                  const top3 = ml.shap.slice(0, 3);
+                  const maxAbs = Math.max(...top3.map(s => Math.abs(s.value)), 0.001);
+                  return (
                   <div>
-                    <div style={{ fontSize: 10, color: "var(--text-3)", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Primary SHAP Drivers</div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {ml.shap.slice(0, 3).map((item, idx) => (
-                        <div key={idx} style={{ background: "var(--surface2)", padding: "6px 10px", borderRadius: 4, border: "1px solid var(--border)", fontSize: 11 }}>
-                          <div style={{ fontFamily: "var(--mono)", fontWeight: 500, color: "var(--text-2)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.feature}</div>
-                          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2 }}>
-                            <span style={{ color: "var(--text-3)", fontSize: 10 }}>SHAP:</span>
-                            <span style={{ fontWeight: 600, color: item.value > 0 ? "var(--red)" : "var(--green)" }}>{item.value > 0 ? "+" : ""}{item.value.toFixed(3)}</span>
+                    <div style={{ fontSize: 10, color: "var(--text-3)", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Visual SHAP Analysis</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10, background: "var(--surface2)", padding: "12px", borderRadius: 6, border: "1px solid var(--border)" }}>
+                      {top3.map((s, idx) => {
+                        const pct = Math.abs(s.value) / maxAbs * 100;
+                        const pos = s.value > 0;
+                        return (
+                          <div key={idx} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10 }}>
+                              <span style={{ fontFamily: "var(--mono)", color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70%" }} title={s.feature}>{s.feature.replace(/_/g, " ")}</span>
+                              <span style={{ fontWeight: 600, color: pos ? "var(--red)" : "var(--green)" }}>{pos ? "+" : ""}{s.value.toFixed(2)}</span>
+                            </div>
+                            <div style={{ width: "100%", height: 6, background: "color-mix(in srgb, var(--border) 50%, transparent)", borderRadius: 3, overflow: "hidden", position: "relative" }}>
+                               <div style={{ position: "absolute", left: pos ? "50%" : `${50 - (pct/2)}%`, width: `${pct/2}%`, height: "100%", background: pos ? "var(--red)" : "var(--green)", borderRadius: 3 }} />
+                               <div style={{ position: "absolute", left: "50%", width: 1, height: "100%", background: "var(--border)" }} />
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
-                )}
+                );})()}
+
+                {/* Compact Heatmap */}
+                <div>
+                  <div style={{ fontSize: 10, color: "var(--text-3)", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, marginTop: 4 }}>Device Trust Heatmap</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {[
+                      { id: "ESP32_1", tr: nodes.esp32_1?.trust ?? 100 },
+                      { id: "ESP32_2", tr: nodes.esp32_2?.trust ?? 100 },
+                      { id: "ESP32_3", tr: nodes.esp32_3?.trust ?? 100 },
+                    ].map(n => (
+                       <div key={n.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
+                         <span style={{ width: 45, fontWeight: 500, color: "var(--text-2)" }}>{n.id}</span>
+                         <div style={{ flex: 1, height: 6, background: "var(--surface2)", borderRadius: 3, overflow: "hidden", border: "1px solid var(--border)" }}>
+                           <div style={{ height: "100%", width: `${n.tr}%`, background: n.tr < 40 ? "var(--red)" : n.tr < 70 ? "var(--amber)" : "var(--green)" }} />
+                         </div>
+                         <span style={{ width: 28, textAlign: "right", fontFamily: "var(--mono)", color: "var(--text-3)" }}>{n.tr}%</span>
+                       </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
 
