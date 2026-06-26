@@ -5,7 +5,7 @@ NetGuard AI — FastAPI Backend
 - SHAP values computed per inference cycle
 - IST timesync published to ESP nodes
 """
-import asyncio, json, time, math, threading, pickle, os
+import asyncio, json, time, math, threading, pickle, os, random
 from collections import deque
 from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
