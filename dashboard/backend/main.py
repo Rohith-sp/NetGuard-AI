@@ -305,10 +305,8 @@ async def _generate_incident_narrative(label: str, confidence: float, feats: dic
             f"Write in plain professional English, no markdown, no bullet points, no headers."
         )
 
-        from rag import call_groq_llm, call_gemini_llm
+        from rag import call_groq_llm
         narrative = await loop.run_in_executor(None, lambda: call_groq_llm("You are a terse, expert SOC incident writer.", prompt))
-        if not narrative:
-            narrative = await loop.run_in_executor(None, lambda: call_gemini_llm(f"You are a terse, expert SOC incident writer.\n\n{prompt}"))
         if not narrative:
             # Deterministic fallback
             top_feat = top_shap[0]["feature"].replace("_", " ") if top_shap else "packet rate"
