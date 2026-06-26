@@ -18,7 +18,7 @@ function publicLabel(l: string, device: string): string {
     if (l === "DATA_POISON")       return "SPOOFING";
     if (l === "TOPIC_BOMB")        return "OVERLOAD";
     if (l === "EVASION_ATTACK")    return "EVASION";
-    if (l === "NORMAL")            return "MOTION";
+    if (l === "NORMAL")            return "LEGITIMATE";
   }
   return l;
 }

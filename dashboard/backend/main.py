@@ -359,6 +359,16 @@ def on_message(client, userdata, msg):
         data  = json.loads(raw)
         now   = time.time()
 
+        # Seamless digital LDR conversion: Map 0 (Bright) and 1 (Dark) to realistic LUX
+        if topic == "netguard/device2" and "light" in data:
+            val = data["light"]
+            if val == 0:
+                data["light"] = 1350 + random.randint(-40, 40) # Bright daytime ambient
+                raw = json.dumps(data)
+            elif val == 1:
+                data["light"] = 18 + random.randint(-5, 10)    # Nighttime / covered
+                raw = json.dumps(data)
+
         last_messages.append({"topic": topic, "payload": raw[:200], "ts": datetime.now(IST).strftime("%H:%M:%S")})
         if len(last_messages) > 20: last_messages.pop(0)
 

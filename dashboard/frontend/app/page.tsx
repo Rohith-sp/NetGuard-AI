@@ -111,7 +111,7 @@ export default function Page() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
             <div>
               <div className="page-title">{tab === "analytics" ? "Live Sensor Analytics" : tab === "overview" ? "Network Overview" : tab === "topology" ? "Network Topology" : tab === "working" ? "System Architecture" : "AI Security Analyst"}</div>
-              <div className="page-subtitle">{tab === "analytics" ? "Real-time temperature, humidity & light readings from your IoT nodes" : tab === "working" ? "End-to-end hybrid pipeline — how NetGuard AI detects intrusions" : "Semester IV · 3 nodes monitored"}</div>
+              <div className="page-subtitle">{tab === "analytics" ? "Real-time temperature, humidity & light readings from your IoT nodes" : tab === "working" ? "End-to-end hybrid pipeline — how NetGuard AI detects intrusions" : "Active Fleet · 3 Edge Nodes Monitored"}</div>
             </div>
             {simKey !== "NORMAL" && (
               <span className="demo-active-pill" style={{ background: "var(--red-bg)", color: "var(--red)", borderColor: "var(--red)", fontSize: "11px", padding: "4px 10px" }}>
@@ -173,7 +173,7 @@ export default function Page() {
 
         {/* ── ANALYTICS TAB ─────────────────────────────────────────────── */}
         {tab === "analytics" && (
-          <AnalyticsTab data={sensorTemporal} n1={nodes.esp32_1} n2={nodes.esp32_2} />
+          <AnalyticsTab data={sensorTemporal} n1={nodes.esp32_1} n2={nodes.esp32_2} n3={nodes.esp32_3} />
         )}
 
         {/* ── TOPOLOGY TAB ──────────────────────────────────────────────── */}
@@ -464,7 +464,7 @@ export default function Page() {
                   <button className="atk-select" style={{ fontSize: 11, padding: "5px 12px", borderRadius: 14 }} onClick={() => sendChat("Why is ESP32_3 flagged as suspicious right now?")}>
                     🔍 Why is ESP32_3 suspicious?
                   </button>
-                  <button className="atk-select" style={{ fontSize: 11, padding: "5px 12px", borderRadius: 14 }} onClick={() => sendChat("What are the current DHT and LDR sensor readings?")}>
+                  <button className="atk-select" style={{ fontSize: 11, padding: "5px 12px", borderRadius: 14 }} onClick={() => sendChat("What are the current DHT, LDR, and MQ135 sensor readings?")}>
                     🌡️ Show active sensor readings
                   </button>
                   <button className="atk-select" style={{ fontSize: 11, padding: "5px 12px", borderRadius: 14 }} onClick={() => sendChat("What features does the Random Forest model evaluate?")}>

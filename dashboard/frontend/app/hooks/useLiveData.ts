@@ -13,7 +13,7 @@ export interface PacketEntry  { id: number; time: string; label: string; device:
 export interface AlertEntry   { id: number; time: string; title: string; severity: "CRITICAL"|"HIGH"|"MEDIUM"|"LOW"; device: string; meta: string; }
 export interface TemporalPoint{ t: string; anomaly: number; r1: number; r2: number; r3: number; }
 export interface MLState       { label: string; confidence: number; isAttack: boolean; pktRate: number; iatMean: number; dupRatio: number; seqGap: number; shap: {feature:string;value:number;raw:number}[]; }
-export interface SensorPoint  { t: string; temp?: number; humidity?: number; light?: number; }
+export interface SensorPoint  { t: string; temp?: number; humidity?: number; light?: number; gas_ppm?: number; }
 export interface IncidentState { text: string; label: string; ts: string; }
 
 const ATTACKS = ["DOS_FLOOD", "REPLAY_ATTACK", "SLOW_RATE_ATTACK", "DATA_POISON", "TOPIC_BOMB", "EVASION_ATTACK"];
@@ -111,6 +111,9 @@ export function useLiveData() {
               ...n,
               esp32_3: { ...n.esp32_3, mode: d.mode, seq: d.seq, pktRate, gas_ppm: d.gas_ppm, lastSeen: now, online: true }
             }));
+            if (d.gas_ppm !== undefined) {
+              setSensorTemporal(s => [...s, { t: now, gas_ppm: d.gas_ppm }].slice(-80));
+            }
             const entry: PacketEntry = { id: ++pktIdRef.current, time: now, label: d.mode, device: "netguard/attacker", iat: 0 };
             setPackets(p => [entry, ...p].slice(0, 120));
             setTotal(p => p + 1);

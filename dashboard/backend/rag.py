@@ -157,10 +157,11 @@ def run_expert_system(question: str, kb: str, logs: list, inference: dict) -> st
             f". This triggers a HIGH-severity incident response card in the SOC. Remote containment recommended."
         )
 
-    # Ask about sensor metrics / DHT / LDR
-    if any(x in q for x in ["sensor", "dht", "ldr", "temp", "humidity", "light", "lux"]):
+    # Ask about sensor metrics / DHT / LDR / MQ135
+    if any(x in q for x in ["sensor", "dht", "ldr", "mq135", "gas", "temp", "humidity", "light", "lux", "ppm", "readings"]):
         dht_log = next((log for log in logs if "device1" in log["topic"]), None)
         ldr_log = next((log for log in logs if "device2" in log["topic"]), None)
+        gas_log = next((log for log in logs if "attacker" in log["topic"] or "device3" in log["topic"]), None)
         
         rep = "### Live Sensor Node Telemetry\n"
         if dht_log:
@@ -181,7 +182,16 @@ def run_expert_system(question: str, kb: str, logs: list, inference: dict) -> st
         else:
             rep += f"* 💡 **ESP32_2 (LDR):** Offline / No recent syncs\n"
 
-        rep += "\n*Note: Telemetry fluctuations mimic authentic Bangalore day/night cycles to test model robustness.*"
+        if gas_log:
+            try:
+                p = re.findall(r'"gas_ppm":\s*([\d\.]+)', gas_log["payload"])[0]
+                rep += f"* 💨 **ESP32_3 (MQ135):** Air Quality Gas = {p} PPM\n"
+            except:
+                rep += f"* 💨 **ESP32_3 (MQ135):** Online (Gas sensor active)\n"
+        else:
+            rep += f"* 💨 **ESP32_3 (MQ135):** Offline / No recent syncs\n"
+
+        rep += "\n*Note: Telemetry fluctuations mimic authentic Bangalore climate and air quality to test model robustness.*"
         return rep
 
     # Ask about the dataset features / explain features

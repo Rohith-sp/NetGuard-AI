@@ -105,34 +105,39 @@ function EmptyChart({ color, message }: { color: string; message: string }) {
 
 // ─── Main Analytics Tab ─────────────────────────────────────────────────────
 export default function AnalyticsTab({
-  data, n1, n2,
+  data, n1, n2, n3,
 }: {
   data: SensorPoint[];
   n1: NodeData | undefined;
   n2: NodeData | undefined;
+  n3?: NodeData | undefined;
 }) {
   // Separate streams
   const tempData     = data.filter(d => d.temp !== undefined);
   const humidData    = data.filter(d => d.humidity !== undefined);
   const lightData    = data.filter(d => d.light !== undefined);
+  const gasData      = data.filter(d => d.gas_ppm !== undefined);
 
   const latestTemp   = n1?.temp   ?? null;
   const latestHumid  = n1?.humidity ?? null;
   const latestLight  = n2?.light  ?? null;
+  const latestGas    = n3?.gas_ppm ?? null;
 
   const avgTemp   = tempData.length  ? (tempData.reduce((s, d) => s + (d.temp ?? 0), 0)  / tempData.length).toFixed(1)  : "—";
   const avgHumid  = humidData.length ? (humidData.reduce((s, d) => s + (d.humidity ?? 0), 0) / humidData.length).toFixed(1) : "—";
   const minLight  = lightData.length ? Math.min(...lightData.map(d => d.light ?? 0)) : null;
   const maxLight  = lightData.length ? Math.max(...lightData.map(d => d.light ?? 0)) : null;
+  const avgGas    = gasData.length   ? (gasData.reduce((s, d) => s + (d.gas_ppm ?? 0), 0) / gasData.length).toFixed(1) : "—";
 
   const n1Online  = n1?.online ?? false;
   const n2Online  = n2?.online ?? false;
+  const n3Online  = n3?.online ?? false;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
       {/* ── KPI Summary Row ───────────────────────────────────────────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
         <StatSummary
           icon="🌡️" label="Temperature" unit="°C" color="var(--red)"
           value={latestTemp !== null ? latestTemp.toFixed(1) : "—"}
@@ -145,6 +150,10 @@ export default function AnalyticsTab({
           icon="☀️" label="Light Intensity" unit="LUX" color="var(--amber)"
           value={latestLight !== null ? String(latestLight) : "—"}
         />
+        <StatSummary
+          icon="💨" label="Air Quality" unit="PPM" color="#9333ea"
+          value={latestGas !== null ? Number(latestGas).toFixed(1) : "—"}
+        />
       </div>
 
       {/* ── Node Status Strip ─────────────────────────────────────────────── */}
@@ -152,6 +161,7 @@ export default function AnalyticsTab({
         {[
           { id: "Node A · DHT11",  topic: "netguard/device1", online: n1Online, color: "var(--green)",  desc: "Temperature & Humidity" },
           { id: "Node B · LDR",    topic: "netguard/device2", online: n2Online, color: "var(--amber)",  desc: "Ambient Light" },
+          { id: "Node C · MQ135",  topic: "netguard/attacker",online: n3Online, color: "#9333ea",       desc: "Air Quality Gas PPM" },
         ].map(node => (
           <div key={node.id} style={{
             flex: 1, background: "var(--surface)", border: "1px solid var(--border)",
@@ -271,6 +281,38 @@ export default function AnalyticsTab({
               <Area
                 type="monotone" dataKey="light" stroke="#d97706" strokeWidth={2}
                 fill="url(#gradLight)" dot={false} activeDot={{ r: 4, fill: "#d97706" }}
+                isAnimationActive={false}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
+      </ChartCard>
+
+      {/* ── Air Quality Gas Chart ─────────────────────────────────────────── */}
+      <ChartCard
+        title="Air Quality Gas Concentration"
+        subtitle={`Session avg: ${avgGas} PPM · ${gasData.length} readings · MQ135 sensor`}
+        tag={latestGas !== null ? `${Number(latestGas).toFixed(1)} PPM` : "No data"}
+        tagColor="#9333ea"
+      >
+        {gasData.length < 2 ? (
+          <EmptyChart color="#9333ea" message="Waiting for air quality gas readings from Node C…" />
+        ) : (
+          <ResponsiveContainer width="100%" height={160}>
+            <AreaChart data={gasData} margin={{ top: 6, right: 8, left: -20, bottom: 0 }}>
+              <defs>
+                <linearGradient id="gradGas" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor="#9333ea" stopOpacity={0.18} />
+                  <stop offset="95%" stopColor="#9333ea" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="t" tick={{ fontFamily: "var(--mono)", fontSize: 9, fill: "var(--text-3)" }} interval="preserveStartEnd" axisLine={false} tickLine={false} />
+              <YAxis domain={["auto", "auto"]} tick={{ fontFamily: "var(--mono)", fontSize: 9, fill: "var(--text-3)" }} axisLine={false} tickLine={false} />
+              <Tooltip content={<ChartTooltip unit="PPM" color="#9333ea" />} />
+              <Area
+                type="monotone" dataKey="gas_ppm" stroke="#9333ea" strokeWidth={2}
+                fill="url(#gradGas)" dot={false} activeDot={{ r: 4, fill: "#9333ea" }}
                 isAnimationActive={false}
               />
             </AreaChart>
