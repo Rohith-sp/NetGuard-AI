@@ -5,8 +5,8 @@
 // ==========================================
 // 1. WiFi & MQTT Configuration
 // ==========================================
-const char* ssid        = "wifi-name";
-const char* password    = "wifi-password";
+const char* ssid        = "YOUR_WIFI_SSID";
+const char* password    = "YOUR_WIFI_PASSWORD";
 const char* mqtt_server = "broker.hivemq.com";
 const int   mqtt_port   = 1883;
 
@@ -34,8 +34,6 @@ unsigned long seqNumber = 0;
 
 // Alarm State Variables (Marked volatile for callback safety)
 volatile bool underAttack = false;
-volatile unsigned long attackStartTime = 0;
-const unsigned long ATTACK_DURATION = 5000; 
 unsigned long lastBlinkTime = 0;
 bool alarmState = false; 
 
@@ -65,10 +63,15 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     msg += (char)payload[i];
   }
   
-  Serial.println("\n WARNING! ALERT RECEIVED: " + msg);
+  Serial.println("\n [MQTT] netguard/alerts RECEIVED: " + msg);
   
-  underAttack = true;
-  attackStartTime = millis(); 
+  if (msg.indexOf("ALL_CLEAR") >= 0 || msg.indexOf("NORMAL") >= 0) {
+    underAttack = false;
+    Serial.println(">> ALL CLEAR received. Returning to Green.");
+  } else {
+    underAttack = true;
+    Serial.println(">> ATTACK DETECTED. Starting alarm!");
+  }
 }
 
 void reconnect() {
@@ -118,24 +121,17 @@ void loop() {
 
   // --- 1. ALARM LOGIC ---
   if (underAttack) {
-    if (now - attackStartTime > ATTACK_DURATION) {
-      underAttack = false; 
-      Serial.println(">> ALARM FINISHED. Returning to Green.");
-    } else {
-      // Actively under attack!
-      if (now - lastBlinkTime > 250) {
-        lastBlinkTime = now;
-        alarmState = !alarmState;
-        
-        if (alarmState) {
-          Serial.println("   [DEBUG] Turning RED + BUZZ ON");
-          setLedColor(true, false, false); // RED ON
-          digitalWrite(BUZZER_PIN, HIGH);  // BUZZER ON
-        } else {
-          Serial.println("   [DEBUG] Turning OFF");
-          setLedColor(false, false, false); // OFF
-          digitalWrite(BUZZER_PIN, LOW);    // BUZZER OFF
-        }
+    // Actively under attack!
+    if (now - lastBlinkTime > 250) {
+      lastBlinkTime = now;
+      alarmState = !alarmState;
+      
+      if (alarmState) {
+        setLedColor(true, false, false); // RED ON
+        digitalWrite(BUZZER_PIN, HIGH);  // BUZZER ON
+      } else {
+        setLedColor(false, false, false); // OFF
+        digitalWrite(BUZZER_PIN, LOW);    // BUZZER OFF
       }
     }
   } else {
