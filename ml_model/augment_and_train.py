@@ -6,37 +6,32 @@ Strategy:
 - SLOW_RATE sends ~1 packet every 15-30 seconds from the attacker node
 - seq increments by 1 each time (NOT frozen like replay)
 - Generate enough windows to give the ML model ~40 training windows
+- NO label-leakage features (unique_modes removed)
 """
 import os, random
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta, timezone
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report, accuracy_score
+from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
 import joblib
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-CSV_PATH  = r"C:\IOT EL\NetGuard-AI\real_time_collector\collected_datasets\telemetry_session_20260602_234537.csv"
-MODEL_OUT = r"C:\IOT EL\NetGuard-AI\ml_model\netguard_model.pkl"
+CSV_PATH  = os.path.join(os.path.dirname(__file__), "..", "real_time_collector", "collected_datasets", "telemetry_session_20260602_234537.csv")
+MODEL_OUT = os.path.join(os.path.dirname(__file__), "netguard_model.pkl")
 
 random.seed(42)
 np.random.seed(42)
 
 def generate_slow_rate_packets(n_windows: int = 50, base_seq: int = 2000) -> pd.DataFrame:
-    """
-    Generate synthetic SLOW_RATE_ATTACK attacker packets.
-    Each window of 10 seconds should contain only 0-1 packets (very low rate).
-    We generate enough to fill n_windows worth of data.
-    """
     rows = []
-    # Start time — append after the existing dataset ends
     t = datetime(2026, 6, 2, 20, 30, 0, tzinfo=timezone.utc)
     seq = base_seq
 
-    # Generate ~200 packets spread over ~55 minutes (enough for 50+ training windows)
-    # IAT: 15-30 seconds, sometimes longer (up to 40s)
     for _ in range(200):
-        iat_s = random.uniform(15, 35)           # 15-35 second gap = slow rate
+        iat_s = random.uniform(15, 35)
         t += timedelta(seconds=iat_s)
         iat_ms = int(iat_s * 1000)
         seq += 1
@@ -54,7 +49,6 @@ def generate_slow_rate_packets(n_windows: int = 50, base_seq: int = 2000) -> pd.
             "label":           "SLOW_RATE_ATTACK",
         })
 
-    # Intersperse matching NORMAL packets from device1/device2 (keeps dataset balanced)
     t_start = datetime(2026, 6, 2, 20, 30, 0, tzinfo=timezone.utc)
     t_n = t_start
     seq_d1 = 800
@@ -100,8 +94,7 @@ def build_features_from_df(df: pd.DataFrame, window_sec: float = 10.0) -> pd.Dat
         if len(timestamps) > 1:
             iats = [(timestamps[i+1] - timestamps[i]) * 1000 for i in range(len(timestamps)-1)]
         else:
-            # Single packet in window — hallmark of slow rate attack
-            iats = [window_sec * 1000]   # treat whole window as one huge IAT
+            iats = [window_sec * 1000]
 
         seqs = [int(s) for s in window["seq"] if s >= 0]
         seq_incs = [seqs[i+1] - seqs[i] for i in range(len(seqs)-1)] if len(seqs) > 1 else [1]
@@ -124,7 +117,6 @@ def build_features_from_df(df: pd.DataFrame, window_sec: float = 10.0) -> pd.Dat
             "duplicate_ratio":       round(dups / max(n, 1), 4),
             "seq_increment_mean":    round(np.mean(seq_incs), 4),
             "seq_increment_std":     round(np.std(seq_incs), 4) if len(seq_incs) > 1 else 0.0,
-            "unique_modes":          int(window["mode"].nunique()),
             "label":                 label,
         })
         t += step
@@ -160,13 +152,12 @@ def main():
     print("\n[*] Class distribution:")
     print(feat_df["label"].value_counts().to_string())
 
-    # 5. Train/test split
+    # 5. Train/test split — 9 features, NO unique_modes (label-leakage fix)
     FEATURE_COLS = [
         "packet_count", "packet_rate",
         "mean_inter_arrival_ms", "std_inter_arrival_ms",
         "min_inter_arrival_ms",  "max_inter_arrival_ms",
         "duplicate_ratio", "seq_increment_mean", "seq_increment_std",
-        "unique_modes",
     ]
     X = feat_df[FEATURE_COLS]
     y = feat_df["label"]
@@ -176,7 +167,7 @@ def main():
     )
 
     # 6. Train with 200 trees
-    print("\n[*] Training Random Forest (200 trees, all 4 classes)…")
+    print("\n[*] Training Random Forest (200 trees, all classes)…")
     clf = RandomForestClassifier(n_estimators=200, random_state=42, n_jobs=-1)
     clf.fit(X_train, y_train)
 
@@ -191,15 +182,51 @@ def main():
     print("\n[+] Classification Report:")
     print(classification_report(y_test, y_pred))
 
+    # Cross-validation (Stratified 5-fold)
+    print("\n[+] 5-Fold Stratified Cross-Validation:")
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    cv_scores = cross_val_score(clf, X, y, cv=cv, scoring='accuracy')
+    print(f"    Fold accuracies: {[f'{s*100:.1f}%' for s in cv_scores]}")
+    print(f"    Mean CV Accuracy: {cv_scores.mean()*100:.2f}% (+/- {cv_scores.std()*100:.2f}%)")
+
+    # Confusion Matrix
+    print("\n[+] Confusion Matrix:")
+    cm = confusion_matrix(y_test, y_pred, labels=clf.classes_)
+    print(cm)
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=clf.classes_, yticklabels=clf.classes_)
+    plt.title('Confusion Matrix (Test Set — No Label Leakage)')
+    plt.ylabel('True Label')
+    plt.xlabel('Predicted Label')
+    plt.tight_layout()
+    cm_path = os.path.join(os.path.dirname(MODEL_OUT), "confusion_matrix.png")
+    plt.savefig(cm_path, dpi=150)
+    plt.close()
+    print(f"[+] Confusion matrix saved to: {cm_path}")
+
+    # Feature importances
     print("[+] Feature Importances (top 5):")
     importances = sorted(zip(FEATURE_COLS, clf.feature_importances_), key=lambda x: -x[1])
     for feat, imp in importances[:5]:
         print(f"    {feat:<28} {imp*100:.1f}%")
 
+    plt.figure(figsize=(8, 5))
+    feat_names = [f for f, _ in importances]
+    feat_vals = [v for _, v in importances]
+    plt.barh(feat_names[::-1], feat_vals[::-1])
+    plt.xlabel('Feature Importance')
+    plt.title('Random Forest Feature Importances (No Label Leakage)')
+    plt.tight_layout()
+    fi_path = os.path.join(os.path.dirname(MODEL_OUT), "feature_importance.png")
+    plt.savefig(fi_path, dpi=150)
+    plt.close()
+    print(f"[+] Feature importance plot saved to: {fi_path}")
+
     # 8. Save
     joblib.dump(clf, MODEL_OUT)
     print(f"\n[SUCCESS] Model saved to: {MODEL_OUT}")
-    print(f"[INFO] Model now includes all 4 attack classes: NORMAL, DOS_FLOOD, REPLAY_ATTACK, SLOW_RATE_ATTACK\n")
+    print(f"[INFO] 9 features (unique_modes removed to prevent label leakage)\n")
 
 
 if __name__ == "__main__":

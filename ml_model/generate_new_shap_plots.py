@@ -7,10 +7,10 @@ import joblib
 import shap
 
 # ── Paths ───────────────────────────────────────────────────────────────────
-DATA_DIR   = r"C:\IOT EL\NetGuard-AI\real_time_collector\collected_datasets"
-MODEL_OUT  = r"C:\IOT EL\NetGuard-AI\ml_model\netguard_model.pkl"
-PAPER_DIR  = r"C:\IOT EL"
-ARTIFACTS_DIR = r"C:\Users\rohit\.gemini\antigravity-ide\brain\f18bd124-7c95-4063-913c-d4a797a4a12a"
+_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR   = os.path.join(_DIR, "..", "real_time_collector", "collected_datasets")
+MODEL_OUT  = os.path.join(_DIR, "netguard_model.pkl")
+PAPER_DIR  = os.path.join(_DIR, "..", "paper_images")
 
 # Load Latest CSV and Build Features
 list_of_files = glob.glob(os.path.join(DATA_DIR, "*.csv"))
@@ -28,7 +28,6 @@ FEATURE_COLS = [
     "mean_inter_arrival_ms", "std_inter_arrival_ms",
     "min_inter_arrival_ms",  "max_inter_arrival_ms",
     "duplicate_ratio", "seq_increment_mean", "seq_increment_std",
-    "unique_modes",
 ]
 
 X = feat_df[FEATURE_COLS]
@@ -59,7 +58,7 @@ for cls_name, filename in new_plots.items():
         idx = candidates.index[0]
         sample_x = X.loc[[idx]]
         raw_vals = sample_x.values[0]
-        sv = explainer.shap_values(sample_x, check_additivity=False)
+        sv = explainer.shap_values(sample_x)
         
         cls_idx = classes_list.index(cls_name)
         if isinstance(sv, list):
@@ -95,9 +94,8 @@ for cls_name, filename in new_plots.items():
     plt.xlim(min(sorted_vals)*1.2 - 0.05, max(sorted_vals)*1.2 + 0.05)
     plt.tight_layout()
     
-    # Save to both target locations
+    # Save to paper_images
     plt.savefig(os.path.join(PAPER_DIR, filename), dpi=300)
-    plt.savefig(os.path.join(ARTIFACTS_DIR, filename), dpi=300)
     plt.close()
 
 print("New SHAP plots generated successfully!")

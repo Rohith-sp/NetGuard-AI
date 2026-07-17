@@ -1,31 +1,35 @@
 """
-Retrains the NetGuard Random Forest model using the same 10-feature schema
+Retrains the NetGuard Random Forest model using the 9-feature schema
 that the FastAPI backend (main.py) uses for live inference.
 
 Features match extract_features() in backend/main.py exactly.
+Label-leakage feature (unique_modes) removed to ensure detection
+relies only on flow-based features, not attacker self-identification.
 """
 import os
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report, accuracy_score
+from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
 import joblib
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 import glob
-DATA_DIR   = r"C:\IOT EL\NetGuard-AI\real_time_collector\collected_datasets"
+DATA_DIR   = os.path.join(os.path.dirname(__file__), "..", "real_time_collector", "collected_datasets")
 list_of_files = glob.glob(os.path.join(DATA_DIR, "*.csv"))
 if not list_of_files:
-    raise FileNotFoundError("No CSV files found in " + DATA_DIR)
+    raise FileNotFoundError("No CSV files found in " + os.path.abspath(DATA_DIR))
 CSV_PATH = max(list_of_files, key=os.path.getctime)
-MODEL_OUT  = r"C:\IOT EL\NetGuard-AI\ml_model\netguard_model.pkl"
+MODEL_OUT  = os.path.join(os.path.dirname(__file__), "netguard_model.pkl")
 
 # ── Feature engineering — mirrors backend extract_features() exactly ──────────
 def build_features_from_csv(df: pd.DataFrame, window_sec: float = 10.0) -> pd.DataFrame:
     """
     Group packets into 10-second sliding windows per device, then compute
-    the same 10 features the backend extracts live from the packet_buffer.
+    the same 9 features the backend extracts live from the packet_buffer.
     """
     df = df.copy()
     df["ts"] = pd.to_datetime(df["timestamp_utc"]).astype("int64") / 1e9  # unix seconds
@@ -76,7 +80,6 @@ def build_features_from_csv(df: pd.DataFrame, window_sec: float = 10.0) -> pd.Da
             "duplicate_ratio":       round(dup_ratio, 4),
             "seq_increment_mean":    round(np.mean(seq_incs), 4),
             "seq_increment_std":     round(np.std(seq_incs), 4) if len(seq_incs) > 1 else 0.0,
-            "unique_modes":          int(window["mode"].nunique()),
             "label":                 label,
         })
         t += step
@@ -113,7 +116,6 @@ def main():
         "mean_inter_arrival_ms", "std_inter_arrival_ms",
         "min_inter_arrival_ms",  "max_inter_arrival_ms",
         "duplicate_ratio", "seq_increment_mean", "seq_increment_std",
-        "unique_modes",
     ]
     X = feat_df[FEATURE_COLS]
     y = feat_df["label"]
@@ -138,11 +140,48 @@ def main():
     print("\n[+] Classification Report:")
     print(classification_report(y_test, y_pred))
 
+    # Cross-validation (Stratified 5-fold)
+    print("\n[+] 5-Fold Stratified Cross-Validation:")
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    cv_scores = cross_val_score(clf, X, y, cv=cv, scoring='accuracy')
+    print(f"    Fold accuracies: {[f'{s*100:.1f}%' for s in cv_scores]}")
+    print(f"    Mean CV Accuracy: {cv_scores.mean()*100:.2f}% (+/- {cv_scores.std()*100:.2f}%)")
+
+    # Confusion Matrix
+    print("\n[+] Confusion Matrix:")
+    cm = confusion_matrix(y_test, y_pred, labels=clf.classes_)
+    print(cm)
+    # Plot and save confusion matrix
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=clf.classes_, yticklabels=clf.classes_)
+    plt.title('Confusion Matrix (Test Set)')
+    plt.ylabel('True Label')
+    plt.xlabel('Predicted Label')
+    plt.tight_layout()
+    cm_path = os.path.join(os.path.dirname(MODEL_OUT), "confusion_matrix.png")
+    plt.savefig(cm_path, dpi=150)
+    plt.close()
+    print(f"[+] Confusion matrix saved to: {cm_path}")
+
     # Feature importances
     print("[+] Feature Importances (top 5):")
     importances = sorted(zip(FEATURE_COLS, clf.feature_importances_), key=lambda x: -x[1])
     for feat, imp in importances[:5]:
         print(f"    {feat:<28} {imp*100:.1f}%")
+
+    # Feature importance plot
+    plt.figure(figsize=(8, 5))
+    feat_names = [f for f, _ in importances]
+    feat_vals = [v for _, v in importances]
+    plt.barh(feat_names[::-1], feat_vals[::-1])
+    plt.xlabel('Feature Importance')
+    plt.title('Random Forest Feature Importances')
+    plt.tight_layout()
+    fi_path = os.path.join(os.path.dirname(MODEL_OUT), "feature_importance.png")
+    plt.savefig(fi_path, dpi=150)
+    plt.close()
+    print(f"[+] Feature importance plot saved to: {fi_path}")
 
     # 7. Save
     joblib.dump(clf, MODEL_OUT)

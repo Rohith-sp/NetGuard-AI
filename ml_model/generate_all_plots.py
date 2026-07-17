@@ -10,9 +10,10 @@ import shap
 from PIL import Image
 
 # ── Paths ───────────────────────────────────────────────────────────────────
-DATA_DIR   = r"C:\IOT EL\NetGuard-AI\real_time_collector\collected_datasets"
-MODEL_OUT  = r"C:\IOT EL\NetGuard-AI\ml_model\netguard_model.pkl"
-PAPER_DIR  = r"C:\IOT EL"
+_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR   = os.path.join(_DIR, "..", "real_time_collector", "collected_datasets")
+MODEL_OUT  = os.path.join(_DIR, "netguard_model.pkl")
+PAPER_DIR  = os.path.join(_DIR, "..", "paper_images")
 
 os.makedirs(PAPER_DIR, exist_ok=True)
 
@@ -34,7 +35,6 @@ FEATURE_COLS = [
     "mean_inter_arrival_ms", "std_inter_arrival_ms",
     "min_inter_arrival_ms",  "max_inter_arrival_ms",
     "duplicate_ratio", "seq_increment_mean", "seq_increment_std",
-    "unique_modes",
 ]
 
 # Clean class labels to match the 7 classes
@@ -98,7 +98,7 @@ explainer = shap.TreeExplainer(clf)
 # Calculate SHAP values for a sample of the dataset to make it efficient
 sample_size = min(200, len(X))
 X_sample = X.sample(sample_size, random_state=42)
-shap_values = explainer.shap_values(X_sample, check_additivity=False)
+shap_values = explainer.shap_values(X_sample)
 
 # Beeswarm summary plot
 print("Generating SHAP beeswarm summary plot...")
@@ -152,7 +152,7 @@ for cls_name, filename in local_plots.items():
         idx = candidates.index[0]
         sample_x = X.loc[[idx]]
         raw_vals = sample_x.values[0]
-        sv = explainer.shap_values(sample_x, check_additivity=False)
+        sv = explainer.shap_values(sample_x)
         
         # Get SHAP values for the specific class index
         cls_idx = classes_list.index(cls_name)
@@ -195,4 +195,4 @@ for cls_name, filename in local_plots.items():
     plt.savefig(os.path.join(PAPER_DIR, filename), dpi=300)
     plt.close()
 
-print("All plots generated and saved in C:\\IOT EL successfully!")
+print(f"All plots generated and saved in {PAPER_DIR} successfully!")

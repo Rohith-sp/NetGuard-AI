@@ -28,7 +28,19 @@ NetGuard AI is a complete, end-to-end **IoT Intrusion Detection System (IDS)** b
 
 The core challenge this project solves is that purely flow-based machine learning models fail on certain attack types. A **Slow Rate Attack** sends packets so infrequently that the standard 10-second monitoring window is often empty, making it look like normal idle time. A **Data Poisoning Attack** maintains perfectly normal timing while injecting physically-impossible sensor values — invisible to any flow feature. NetGuard AI addresses both with a **Two-Stage Hybrid Detection Pipeline**: a deterministic unsupervised Statistical Profiler runs before the ML model, using Exponential Moving Average (EMA) Z-Scores and long-term packet timestamp tracking to catch the attacks that ML cannot.
 
-What makes it notable is the combination of physical hardware, a cloud MQTT broker, a Python/FastAPI inference server, SHAP-explainable predictions, a Groq/Gemini RAG chatbot, and a production-quality Next.js dashboard — all deployed together as a unified demonstraton platform. Attacks can be triggered from the hardware (a physical button on the ESP32) or from the dashboard's Topology tab, and both paths stay in perfect sync via WebSocket.
+**Stage 1 (Statistical Profiler)** is the primary IDS — it performs real intrusion detection using unsupervised mathematical techniques that work regardless of whether the attacker self-identifies. **Stage 2 (Random Forest)** provides supplementary classification using 9 flow-based features (packet rate, inter-arrival times, sequence increments, duplicate ratio) — none of which rely on attacker-declared metadata.
+
+What makes it notable is the combination of physical hardware, a cloud MQTT broker, a Python/FastAPI inference server, SHAP-explainable predictions, a Groq/Gemini RAG chatbot, and a production-quality Next.js dashboard — all deployed together as a unified demonstration platform. Attacks can be triggered from the hardware (a physical button on the ESP32) or from the dashboard's Topology tab, and both paths stay in perfect sync via WebSocket.
+
+### Architecture Limitations
+
+This is a **live-demo research prototype**, not production infrastructure:
+
+- **Single-worker, in-memory** — `--workers 1` because of module-level globals (packet_buffer, profiler state). State does not survive a backend restart.
+- **No persistence** — Alerts, incident narratives, and sensor history are held in Python dicts/deques. No database.
+- **No horizontal scaling** — The design is inherently single-process.
+- **MQTT broker** — During development, `broker.hivemq.com:1883` (public, unauthenticated) is used for convenience. Production deployments should use a private broker with TLS and ACLs. MQTT authentication/TLS is supported via environment variables (see Configuration section).
+- **API authentication** — All mutation endpoints (`/attacker/mode`, `/simulate`, `/chat`, `/attacker/release`) require an `X-API-Key` header. The key is read from the `NETGUARD_API_KEY` environment variable (defaults to `changeme-dev-key` for local development).
 
 ---
 
@@ -46,9 +58,10 @@ What makes it notable is the combination of physical hardware, a cloud MQTT brok
 | Broker | HiveMQ (public cloud) | Stateless MQTT broker — `broker.hivemq.com:1883` |
 | Backend | Python 3.12, FastAPI, Uvicorn | REST + WebSocket inference server |
 | MQTT Client | Paho MQTT | Backend-side broker subscription |
-| ML | scikit-learn RandomForestClassifier | 7-class attack classification |
-| Explainability | SHAP TreeExplainer | Per-inference SHAP force values |
+| ML | scikit-learn RandomForestClassifier | 7-class attack classification (9 flow-based features) |
+| Explainability | SHAP TreeExplainer | Per-inference SHAP force values (additivity validated) |
 | Unsupervised | Custom EMA + Z-Score | Payload anomaly detection (no retraining needed) |
+| Security | API Key Auth, MQTT TLS | Protected endpoints, optional MQTT encryption |
 | AI Analyst | Groq API (Llama 3.3 70B), Gemini API | RAG-grounded incident narratives and chat |
 | Frontend | Next.js 15, React 19, TypeScript | SOC dashboard SPA |
 | Charts | Recharts | Anomaly score, packet rate, sensor time-series |
@@ -94,7 +107,7 @@ flowchart TD
         subgraph PIPELINE["🧠 Two-Stage Detection Pipeline — every 5 seconds"]
             direction LR
             PROFILER["Stage 1\nStatistical Profiler\nstatistical_analyzer.py\n\nEMA Z-Score → Data Poison\nMedian IAT → Slow Rate"]:::profiler
-            RF["Stage 2\nRandom Forest\nnetguard_model.pkl\n7 classes · 10 features\n+ SHAP TreeExplainer\n(asyncio.to_thread)"]:::ml
+            RF["Stage 2\nRandom Forest\nnetguard_model.pkl\n7 classes · 9 features\n+ SHAP TreeExplainer\n(asyncio.to_thread)"]:::ml
         end
 
         WSBROADCAST["WebSocket Engine\n/ws/live\nbroadcast() coroutine"]:::backend
@@ -197,12 +210,14 @@ flowchart TD
   - `asyncio.to_thread()` — the entire ML inference (Random Forest + SHAP) is offloaded to a thread pool executor to prevent blocking the event loop and causing WebSocket disconnects
   - `_last_alert_time` + 30-second cooldown prevents buzzer spam on sustained attacks
   - `_last_incident_time` + 60-second cooldown rate-limits RAG narrative generation
+  - **API Authentication** — all mutation endpoints (`/attacker/mode`, `/simulate`, `/chat`, `/attacker/release`) require an `X-API-Key` header, validated against the `NETGUARD_API_KEY` env var
+  - **MQTT Configuration** — broker, port, username, password, and TLS settings are all configurable via environment variables (see [Configuration](#configuration))
 
 ---
 
 ### Statistical Profiler — `statistical_analyzer.py`
 - **Location:** `dashboard/backend/statistical_analyzer.py`
-- **Purpose:** Unsupervised, zero-training anomaly detection engine for Data Poisoning and Slow Rate attacks — runs as Stage 1 of the detection pipeline.
+- **Purpose:** **Primary IDS** — unsupervised, zero-training anomaly detection engine for Data Poisoning and Slow Rate attacks. This is the only detection component that works regardless of attacker cooperation (does not rely on attacker self-identification). Runs as Stage 1 of the detection pipeline.
 - **Exposes:** `StatisticalProfiler` class with `track_payload(temp)`, `track_packet(ts)`, `detect_slow_rate()`
 - **Depends On:** Python standard library only (`math`, `collections.deque`)
 - **Key Logic:**
@@ -252,9 +267,10 @@ flowchart TD
 - **Location:** `ml_model/`
 - **Purpose:** Train and serialize the Random Forest model from collected CSV data.
 - **Exposes:** `netguard_model.pkl` — the serialized `RandomForestClassifier` with 7-class output
-- **Depends On:** pandas, scikit-learn, joblib, collected CSV files
-- **Key Logic (`augment_and_train.py`):** Generates 200 synthetic `SLOW_RATE_ATTACK` packets (IAT 15–35 seconds) to augment real collected data, correcting class imbalance for the attack class that is hardest to collect. The synthetic distribution is calibrated to match real hardware behavior.
-- **Key Logic (`train_model.py`):** Groups packets into 10-second sliding windows with 1-second stride — **must mirror `extract_features()` in `main.py` exactly** to prevent feature drift between training and inference.
+- **Depends On:** pandas, scikit-learn, joblib, matplotlib, seaborn, collected CSV files
+- **Key Logic (`augment_and_train.py`):** Generates 200 synthetic `SLOW_RATE_ATTACK` packets (IAT 15–35 seconds) to augment real collected data, correcting class imbalance for the attack class that is hardest to collect. The synthetic distribution is calibrated to match real hardware behavior. Outputs confusion matrix heatmap, feature importance chart, and 5-fold stratified cross-validation scores.
+- **Key Logic (`train_model.py`):** Groups packets into 10-second sliding windows with 1-second stride — **must mirror `extract_features()` in `main.py` exactly** to prevent feature drift between training and inference. Outputs confusion matrix, cross-validation scores, and feature importance plots.
+- **Feature Schema:** 9 features (no `unique_modes` — removed to prevent label leakage). See [Models & Schema](#models--schema) for the full list.
 
 ---
 
@@ -287,11 +303,11 @@ The following traces a complete path from an attacker pressing the hardware butt
 
 6. **`inference_loop()` wakes** (`main.py:150`) — The asyncio background task wakes every 5 seconds. It snapshots `packet_buffer` and filters packets within the last 10 seconds.
 
-7. **`extract_features(window)`** (`main.py:109`) — Computes the 10-feature vector from the window. For a DoS flood: `packet_rate ≈ 4.8`, `mean_inter_arrival_ms ≈ 240`, `std_inter_arrival_ms ≈ 45`.
+7. **`extract_features(window)`** (`main.py:109`) — Computes the 9-feature vector from the window. For a DoS flood: `packet_rate ≈ 4.8`, `mean_inter_arrival_ms ≈ 240`, `std_inter_arrival_ms ≈ 45`.
 
 8. **Stage 1 — Statistical Profiler** — `profiler.detect_slow_rate()` returns False (median IAT is low, not high). No payload Z-Score alert (DoS packets don't go through `netguard/device1`). Stage 1 passes through.
 
-9. **Stage 2 — Random Forest** (`main.py:188`) — `run_ml(feats)` is executed via `asyncio.to_thread`. The 10-feature numpy array is fed to `model.predict()`. Result: `DOS_FLOOD`, `99.0%` confidence. `EXPLAINER.shap_values(X, check_additivity=False)` produces per-feature attributions.
+9. **Stage 2 — Random Forest** (`main.py:188`) — `run_ml(feats)` is executed via `asyncio.to_thread`. The 9-feature numpy array is fed to `model.predict()`. Result: `DOS_FLOOD`, `99.0%` confidence. `EXPLAINER.shap_values(X)` produces per-feature attributions.
 
 10. **`latest_inference` update** — The dict is updated with label, confidence, features, and SHAP values.
 
@@ -309,17 +325,17 @@ The following traces a complete path from an attacker pressing the hardware butt
 
 ## API Reference
 
-| Method | Endpoint | Description | Request Body | Response |
-|---|---|---|---|---|
-| `WS` | `/ws/live` | WebSocket stream — all real-time data | — | JSON messages (see below) |
-| `GET` | `/health` | Service health check | — | `{status, ws_clients, model, buffer_size, ist_time}` |
-| `GET` | `/debug` | Last 20 MQTT messages + latest inference | — | `{last_20_mqtt_messages, latest_inference}` |
-| `GET` | `/incident` | Latest RAG incident narrative | — | `{text, label, ts}` |
-| `GET` | `/feature-importance` | Global feature importances from model | — | `{features: [{feature, importance}], model_classes}` |
-| `POST` | `/attacker/mode` | Command ESP32_3 via MQTT `SET_MODE` | `{"mode": "DOS_FLOOD"}` | `{status, mode}` |
-| `POST` | `/simulate` | Inject synthetic packets into buffer | `{"mode": "SLOW_RATE_ATTACK"}` | `{status, mode, packets_injected}` |
-| `POST` | `/attacker/release` | Reset attacker to NORMAL | — | `{status}` |
-| `POST` | `/chat` | Query RAG AI analyst | `{"question": "Why is ESP32_3 flagged?"}` | `{reply: str}` |
+| Method | Endpoint | Auth | Description | Request Body | Response |
+|---|---|---|---|---|---|
+| `WS` | `/ws/live` | No | WebSocket stream — all real-time data | — | JSON messages (see below) |
+| `GET` | `/health` | No | Service health check | — | `{status, ws_clients, model, buffer_size, ist_time}` |
+| `GET` | `/debug` | No | Last 20 MQTT messages + latest inference | — | `{last_20_mqtt_messages, latest_inference}` |
+| `GET` | `/incident` | No | Latest RAG incident narrative | — | `{text, label, ts}` |
+| `GET` | `/feature-importance` | No | Global feature importances from model | — | `{features: [{feature, importance}], model_classes}` |
+| `POST` | `/attacker/mode` | `X-API-Key` | Command ESP32_3 via MQTT `SET_MODE` | `{"mode": "DOS_FLOOD"}` | `{status, mode}` |
+| `POST` | `/simulate` | `X-API-Key` | Inject synthetic packets into buffer | `{"mode": "SLOW_RATE_ATTACK"}` | `{status, mode, packets_injected}` |
+| `POST` | `/attacker/release` | `X-API-Key` | Reset attacker to NORMAL | — | `{status}` |
+| `POST` | `/chat` | `X-API-Key` | Query RAG AI analyst | `{"question": "Why is ESP32_3 flagged?"}` | `{reply: str}` |
 
 ### WebSocket Message Schema
 
@@ -336,7 +352,7 @@ All messages are JSON with a `topic` discriminator field:
   "iat_mean": 210,             // int — milliseconds
   "dup_ratio": 0.0,            // float — 0.0–1.0
   "seq_gap": 1.0,              // float — mean seq increment
-  "features": { ... },         // dict — all 10 raw features
+  "features": { ... },         // dict — all 9 raw features
   "shap": [                    // array — top SHAP attributions
     { "feature": "packet_rate", "value": 0.412, "raw": 4.8 }
   ]
@@ -372,7 +388,7 @@ All messages are JSON with a `topic` discriminator field:
 }
 ```
 
-### ML Feature Vector (10 features, ordered)
+### ML Feature Vector (9 features, ordered)
 
 ```python
 FEATURE_COLS = [
@@ -385,8 +401,10 @@ FEATURE_COLS = [
     "duplicate_ratio",        # float — fraction of duplicate seq numbers (0.0–1.0)
     "seq_increment_mean",     # float — mean of (seq[i+1] - seq[i])
     "seq_increment_std",      # float — std dev of seq increments
-    "unique_modes",           # int   — count of distinct mode strings in window
 ]
+# NOTE: unique_modes was removed to prevent label leakage.
+# The attacker's self-declared "mode" field is NOT used as a feature.
+# Detection relies on flow-based features that work regardless of attacker cooperation.
 ```
 
 ### `latest_inference` State Dict
@@ -439,12 +457,42 @@ FEATURE_COLS = [
 
 | Variable | Default | Required | Description |
 |---|---|---|---|
+| `NETGUARD_API_KEY` | `changeme-dev-key` | Yes | API key for protecting mutation endpoints. **Change in production.** |
+| `MQTT_BROKER` | `broker.hivemq.com` | No | MQTT broker hostname |
+| `MQTT_PORT` | `1883` | No | MQTT broker port |
+| `MQTT_USERNAME` | — | No | MQTT username for authenticated brokers |
+| `MQTT_PASSWORD` | — | No | MQTT password for authenticated brokers |
+| `MQTT_USE_TLS` | `false` | No | Set to `true` to enable TLS (port 8883 typically) |
+| `MQTT_CA_CERTS` | — | No | Path to CA certificate file for TLS |
 | `GROQ_API_KEY_1` | — | No | Primary Groq API key (Llama 3.3 70B). Get at console.groq.com |
 | `GROQ_API_KEY_2` | — | No | Secondary Groq key for rate-limit rotation |
 | `GROQ_API_KEY` | — | No | Generic fallback Groq key |
 | `GEMINI_API_KEY` | — | No | Google Gemini API key — used if all Groq keys fail |
 
 > If no API keys are configured, the RAG chatbot uses the built-in `run_expert_system()` deterministic fallback. All other system features work normally.
+
+### `dashboard/frontend/.env.local`
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `NEXT_PUBLIC_NETGUARD_API_KEY` | `changeme-dev-key` | Yes | Must match `NETGUARD_API_KEY` on the backend |
+
+### API Authentication
+
+All mutation endpoints require an `X-API-Key` header:
+
+- `POST /attacker/mode` — Set attacker mode
+- `POST /simulate` — Inject synthetic packets
+- `POST /attacker/release` — Release attacker to NORMAL
+- `POST /chat` — Query RAG analyst
+
+```bash
+# Example authenticated request
+curl -X POST http://localhost:8000/attacker/mode \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key" \
+  -d '{"mode": "DOS_FLOOD"}'
+```
 
 ### `real_time_collector/config.json`
 
@@ -497,13 +545,15 @@ cd "NetGuard-AI"
 cd dashboard/backend
 
 # Install Python dependencies
-pip install fastapi uvicorn paho-mqtt scikit-learn shap joblib numpy requests
+pip install fastapi uvicorn paho-mqtt scikit-learn shap joblib numpy requests matplotlib seaborn
 
-# (Optional) Create API keys file for the RAG chatbot
-copy NUL .env
-# Then add your keys manually:
-# GROQ_API_KEY_1=gsk_xxxxxxxxxxxxxxxx
-# GEMINI_API_KEY=AIzaxxxxxxxxxxxxxxxx
+# Create .env file (copy from example)
+copy .env.example .env
+# Edit .env to set:
+#   NETGUARD_API_KEY=your-secret-key    (required for mutation endpoints)
+#   MQTT_USERNAME / MQTT_PASSWORD       (if using an authenticated broker)
+#   MQTT_USE_TLS=true                   (if using TLS)
+#   GROQ_API_KEY_1=gsk_xxx              (optional, for RAG chatbot)
 
 # Start the backend server
 python -m uvicorn main:app --host 0.0.0.0 --port 8000
@@ -515,7 +565,7 @@ You should see:
 [ML] Model loaded from ...netguard_model.pkl
 [ML] Classes: ['DATA_POISON' 'DOS_FLOOD' 'EVASION_ATTACK' 'NORMAL' 'REPLAY_ATTACK' 'SLOW_RATE_ATTACK' 'TOPIC_BOMB']
 [MQTT] Connected rc=0
-[Startup] IST=14.52 | Model=loaded
+[Startup] IST=14.52 | Model=loaded | MQTT=plain no-auth
 ```
 
 ### 3. Frontend
@@ -574,7 +624,8 @@ NetGuard-AI/
 │   │   ├── statistical_analyzer.py    # Stage 1 — EMA Z-Score + IAT profiler (no ML)
 │   │   ├── rag.py                     # RAG analyst — Groq/Gemini LLM + expert system
 │   │   ├── node_simulator.py          # Software ESP32 twins (3 threaded nodes)
-│   │   └── .env                       # API keys (gitignored)
+│   │   ├── debug_model.py             # Model debugging script
+│   │   └── .env                       # API keys, MQTT config (gitignored)
 │   │
 │   └── frontend/                      # Next.js 15 SOC dashboard
 │       ├── app/
@@ -590,6 +641,7 @@ NetGuard-AI/
 │       │       ├── Graphs.tsx         # AnomalyGraph, PktRateGraph (time-series)
 │       │       ├── IncidentReport.tsx # RAG incident narrative display card
 │       │       └── GlobalImportanceChart.tsx # Model feature importance chart
+│       ├── .env.local                 # Frontend env vars (gitignored)
 │       ├── package.json
 │       └── next.config.ts
 │
@@ -598,8 +650,10 @@ NetGuard-AI/
 │   ├── augment_and_train.py           # Main training script — augments + trains
 │   ├── train_model.py                 # Direct training from raw CSVs
 │   ├── generate_plots.py              # Confusion matrix & feature importance plots
+│   ├── generate_all_plots.py          # Full plot suite including SHAP beeswarm
+│   ├── generate_new_shap_plots.py     # Local SHAP attribution plots
 │   ├── confusion_matrix.png           # Model evaluation output
-│   └── feature_importance.png         # SHAP global importance plot
+│   └── feature_importance.png         # Feature importance plot
 │
 ├── real_time_collector/
 │   ├── real_time_collector.py         # Interactive MQTT → CSV labeler (Windows)
@@ -607,8 +661,8 @@ NetGuard-AI/
 │   ├── config.json                    # Broker URL, topics, output directory
 │   └── collected_datasets/            # CSV training data files (gitignored)
 │
+├── .env.example                       # Template for backend environment variables
 ├── DATASETS.md                        # RAG knowledge base — attack behavioral profiles
-├── FUTURE_WORK.md                     # Planned enhancements
 ├── check_mqtt.py                      # Quick MQTT broker connectivity test
 ├── .gitignore
 └── README.md
@@ -623,7 +677,7 @@ NetGuard-AI/
 A purely flow-based ML model computes features like `packet_rate` and `mean_inter_arrival_ms` over a fixed 10-second window. This creates two fatal blind spots:
 
 - **Slow Rate Attack:** If packets arrive every 20 seconds, the 10-second window is empty for most cycles. The ML model sees zero packets — statistically identical to a sensor that is simply offline.
-- **Data Poisoning:** The attacker publishes spoofed values (temperature: 999°C) but at the exact same normal timing as legitimate sensors. All 10 flow features remain within perfectly normal ranges. The ML model is completely blind.
+- **Data Poisoning:** The attacker publishes spoofed values (temperature: 999°C) but at the exact same normal timing as legitimate sensors. All flow features remain within perfectly normal ranges. The ML model is completely blind.
 
 The Stage 1 Statistical Profiler solves both without retraining by operating on different dimensions — payload values and long-term packet history rather than short-window flow statistics.
 
@@ -666,8 +720,11 @@ The project does not currently have a dedicated automated test suite.
 # 1. Verify backend health
 curl http://localhost:8000/health
 
-# 2. Verify ML model and SHAP are working
-curl -X POST http://localhost:8000/simulate -H "Content-Type: application/json" -d "{\"mode\":\"DOS_FLOOD\"}"
+# 2. Verify ML model and SHAP are working (requires API key)
+curl -X POST http://localhost:8000/simulate \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key" \
+  -d "{\"mode\":\"DOS_FLOOD\"}"
 # Wait 5 seconds, then:
 curl http://localhost:8000/debug
 # Expected: latest_inference.label == "DOS_FLOOD"
@@ -675,8 +732,11 @@ curl http://localhost:8000/debug
 # 3. Verify WebSocket
 # Open browser → http://localhost:3000 → check Live indicator turns green
 
-# 4. Verify RAG chatbot
-curl -X POST http://localhost:8000/chat -H "Content-Type: application/json" -d "{\"question\":\"What attack is active?\"}"
+# 4. Verify RAG chatbot (requires API key)
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key" \
+  -d "{\"question\":\"What attack is active?\"}"
 ```
 
 **Attack coverage manual checklist:**
@@ -750,6 +810,32 @@ A `docker-compose.yml` has not been created yet. A minimal configuration would n
 - **TypeScript:** Strict mode is enabled in `tsconfig.json`. No `any` types. Prefer named exports.
 - **CSS:** Add new styles as CSS custom property tokens in `globals.css` — do not use inline `style=` for recurring values.
 - **Feature parity:** Any change to `extract_features()` in `main.py` **must** be mirrored in `train_model.py` and `augment_and_train.py`, and the model must be retrained before committing.
+
+---
+
+## Security Considerations
+
+### Label Leakage Fix (v2.0)
+
+The original model used `unique_modes` — a count of distinct `mode` strings in the window — as a feature. This was derived from the attacker's self-declared `mode` field (e.g., `"mode": "DOS_FLOOD"`), creating label leakage: the model learned to match the attacker's own declaration rather than detect attack behavior from flow characteristics.
+
+**Fixed:** `unique_modes` has been removed from all 9 features. The model now detects attacks using only flow-based features (packet rate, IAT statistics, duplicate ratio, sequence increments) that work regardless of whether the attacker self-identifies. Cross-validation and confusion matrix validation confirm real detection accuracy without label leakage.
+
+### API Authentication
+
+All mutation endpoints (`/attacker/mode`, `/simulate`, `/attacker/release`, `/chat`) require an `X-API-Key` header. The key is configured via the `NETGUARD_API_KEY` environment variable.
+
+### MQTT Security
+
+The backend supports MQTT authentication and TLS via environment variables:
+- `MQTT_USERNAME` / `MQTT_PASSWORD` — for authenticated brokers
+- `MQTT_USE_TLS=true` + `MQTT_CA_CERTS=/path/to/ca.pem` — for TLS encryption
+
+For production deployments, use a private MQTT broker (e.g., Mosquitto, EMQX) with authentication, TLS, and topic-level ACLs.
+
+### SHAP Additivity Validation
+
+SHAP's `check_additivity=True` is now the default (no longer disabled). This ensures the explainer's approximation sums back to the model output, catching numerical errors in explanations.
 
 ---
 

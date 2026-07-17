@@ -9,13 +9,32 @@ import asyncio, json, time, math, threading, pickle, os, random, warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 from collections import deque
 from datetime import datetime, timezone, timedelta
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import APIKeyHeader
 import paho.mqtt.client as mqtt
 from pydantic import BaseModel
 import numpy as np
 import joblib
 from statistical_analyzer import StatisticalProfiler
+
+# ── API Key Authentication ────────────────────────────────────────────────────
+API_KEY = os.environ.get("NETGUARD_API_KEY", "changeme-dev-key")
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+async def verify_api_key(api_key: str = Depends(api_key_header)):
+    if api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+    return api_key
+
+
+# ── MQTT Configuration ─────────────────────────────────────────────────────────
+MQTT_BROKER = os.environ.get("MQTT_BROKER", "broker.hivemq.com")
+MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
+MQTT_USERNAME = os.environ.get("MQTT_USERNAME")
+MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD")
+MQTT_USE_TLS = os.environ.get("MQTT_USE_TLS", "false").lower() == "true"
+MQTT_CA_CERTS = os.environ.get("MQTT_CA_CERTS")
 
 profiler = StatisticalProfiler()
 
@@ -54,7 +73,6 @@ FEATURE_COLS = [
     "mean_inter_arrival_ms", "std_inter_arrival_ms",
     "min_inter_arrival_ms",  "max_inter_arrival_ms",
     "duplicate_ratio", "seq_increment_mean", "seq_increment_std",
-    "unique_modes",
 ]
 
 # ── Load Model ────────────────────────────────────────────────────────────────
@@ -143,7 +161,6 @@ def extract_features(pkts: list, window_sec: float = 5.0) -> dict:
         "duplicate_ratio":       round(dup_ratio, 4),
         "seq_increment_mean":    round(safe_mean(seq_incs), 4),
         "seq_increment_std":     round(safe_std(seq_incs), 4),
-        "unique_modes":          len(set(p["mode"] for p in pkts)),
     }
 
 # ── ML Inference Loop (every 5 seconds) ───────────────────────────────────────
@@ -201,7 +218,7 @@ async def inference_loop():
                     s_out = []
                     if EXPLAINER and HAS_SHAP:
                         try:
-                            sv = EXPLAINER.shap_values(X, check_additivity=False)
+                            sv = EXPLAINER.shap_values(X)
                             cls_idx = list(model.classes_).index(p_label)
                             if isinstance(sv, list):
                                 vals = np.array(sv[cls_idx][0])
@@ -489,6 +506,19 @@ async def gas_explanation_loop():
         await asyncio.sleep(120)
 
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, "netguard-backend")
+
+# Configure MQTT authentication if provided
+if MQTT_USERNAME and MQTT_PASSWORD:
+    mqtt_client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
+
+# Configure TLS if enabled
+if MQTT_USE_TLS:
+    if MQTT_CA_CERTS:
+        mqtt_client.tls_set(ca_certs=MQTT_CA_CERTS)
+    else:
+        mqtt_client.tls_set()
+    mqtt_client.tls_insecure_set(False)
+
 mqtt_client.on_connect = on_connect
 mqtt_client.on_message = on_message
 
@@ -500,7 +530,7 @@ async def startup():
     def run_mqtt():
         while True:
             try:
-                mqtt_client.connect("broker.hivemq.com", 1883, 60)
+                mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
                 mqtt_client.loop_forever()
             except Exception as e:
                 print(f"[MQTT] Connection failed: {e}. Retrying in 5s...")
@@ -510,7 +540,7 @@ async def startup():
     asyncio.create_task(timesync_loop())
     asyncio.create_task(gas_explanation_loop())
     asyncio.create_task(inference_loop())
-    print(f"[Startup] IST={ist_hour():.2f} | Model={'loaded' if model else 'MISSING'}")
+    print(f"[Startup] IST={ist_hour():.2f} | Model={'loaded' if model else 'MISSING'} | MQTT={'TLS' if MQTT_USE_TLS else 'plain'} {'auth' if MQTT_USERNAME else 'no-auth'}")
 
 # ── WebSocket ─────────────────────────────────────────────────────────────────
 @app.websocket("/ws/live")
@@ -543,7 +573,7 @@ class ModeCommand(BaseModel):
 VALID_MODES = {"NORMAL", "DOS_FLOOD", "REPLAY_ATTACK", "SLOW_RATE_ATTACK",
                "DATA_POISON", "TOPIC_BOMB", "EVASION_ATTACK"}
 
-@app.post("/attacker/mode")
+@app.post("/attacker/mode", dependencies=[Depends(verify_api_key)])
 async def set_mode(cmd: ModeCommand):
     mode = cmd.mode.upper().strip()
     if mode not in VALID_MODES:
@@ -577,7 +607,7 @@ _SIM_CFG = {
 
 import random as _random
 
-@app.post("/simulate")
+@app.post("/simulate", dependencies=[Depends(verify_api_key)])
 async def simulate(cmd: ModeCommand):
     """Inject synthetic packets so the ML model predicts the correct attack class."""
     global packet_buffer
@@ -611,7 +641,7 @@ async def simulate(cmd: ModeCommand):
     print(f"[SIM] Injected {cfg['n']} synthetic packets for mode={mode}")
     return {"status": "ok", "mode": mode, "packets_injected": cfg['n']}
 
-@app.post("/attacker/release")
+@app.post("/attacker/release", dependencies=[Depends(verify_api_key)])
 async def release():
     mqtt_client.publish("netguard/cmd", json.dumps({"command": "RELEASE"}))
     return {"status": "ok"}
@@ -620,7 +650,7 @@ async def release():
 class ChatMessage(BaseModel):
     question: str
 
-@app.post("/chat")
+@app.post("/chat", dependencies=[Depends(verify_api_key)])
 async def chat_endpoint(msg: ChatMessage):
     try:
         from rag import query_analyst

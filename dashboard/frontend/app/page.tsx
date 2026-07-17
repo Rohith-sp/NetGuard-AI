@@ -46,9 +46,10 @@ export default function Page() {
     setChatInput("");
 
     try {
+      const apiKey = process.env.NEXT_PUBLIC_NETGUARD_API_KEY || "";
       const res = await fetch("http://localhost:8000/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
         body: JSON.stringify({ question: q }),
       });
       const data = await res.json();
@@ -205,7 +206,7 @@ export default function Page() {
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                   {[
                     { stage: "Stage 1", name: "Statistical Profiler", color: "var(--amber)", desc: "Unsupervised EMA Z-Score anomaly detection on payload values. Catches Data Poisoning & Slow Rate attacks that fool flow-based ML.", tags: ["Z-Score > 3.0", "EMA Baseline", "IAT Tracking"] },
-                    { stage: "Stage 2", name: "Random Forest ML", color: "var(--blue)", desc: "7-class Random Forest classifier trained on 10 flow features extracted from a sliding 10-second packet window. Catches DoS, Replay, Evasion & Topic Bomb.", tags: ["10 Features", "SHAP Values", "7 Classes"] },
+                    { stage: "Stage 2", name: "Random Forest ML", color: "var(--blue)", desc: "7-class Random Forest classifier trained on 9 flow features extracted from a sliding 10-second packet window. Catches DoS, Replay, Evasion & Topic Bomb.", tags: ["9 Features", "SHAP Values", "7 Classes"] },
                   ].map(s => (
                     <div key={s.stage} style={{ background: "var(--surface2)", border: `1px solid color-mix(in srgb, ${s.color} 30%, var(--border))`, borderRadius: "var(--radius)", padding: "16px 18px" }}>
                       <div style={{ fontSize: 10, fontWeight: 600, color: s.color, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 }}>{s.stage}</div>
@@ -269,7 +270,7 @@ export default function Page() {
                     { step: "2", label: "HiveMQ Broker", desc: "Public cloud MQTT broker — routes netguard/# wildcard to all subscribers", color: "var(--blue)" },
                     { step: "3", label: "FastAPI Backend", desc: "Subscribes via Paho, buffers packets in a 60-second deque, runs pipeline every 5s", color: "var(--purple)" },
                     { step: "4", label: "Statistical Profiler", desc: "EMA Z-Score on payloads, global IAT tracking — catches Data Poison & Slow Rate", color: "var(--amber)" },
-                    { step: "5", label: "Random Forest ML", desc: "10-feature vector fed to Random Forest → SHAP explanation generated in thread pool", color: "var(--blue)" },
+                    { step: "5", label: "Random Forest ML", desc: "9-feature vector fed to Random Forest → SHAP explanation generated in thread pool", color: "var(--blue)" },
                     { step: "6", label: "WebSocket Broadcast", desc: "Inference result + SHAP values pushed to all connected browsers via /ws/live", color: "var(--cyan)" },
                     { step: "7", label: "Next.js Dashboard", desc: "useLiveData() hook parses WS messages → React state → live UI updates", color: "var(--green)" },
                   ].map((s, i, arr) => (
@@ -295,7 +296,7 @@ export default function Page() {
                     { layer: "Firmware", items: "Arduino IDE · PubSubClient · LiquidCrystal_I2C · WiFiClient" },
                     { layer: "Protocol", items: "MQTT over TCP · HiveMQ public broker · netguard/# wildcard topics" },
                     { layer: "Backend", items: "Python 3.12 · FastAPI · Uvicorn · Paho MQTT · scikit-learn · SHAP · Groq API · Gemini API" },
-                    { layer: "ML Model", items: "Random Forest (7-class) · 10 flow features · SHAP TreeExplainer · asyncio.to_thread offload" },
+                    { layer: "ML Model", items: "Random Forest (7-class) · 9 flow features · SHAP TreeExplainer · asyncio.to_thread offload" },
                     { layer: "Frontend", items: "Next.js 15 · React 19 · TypeScript · Recharts · Vanilla CSS · DM Sans / JetBrains Mono" },
                     { layer: "Dev Tools", items: "node_simulator.py · real_time_collector.py · augment_and_train.py · .env secrets" },
                   ].map(r => (
@@ -323,7 +324,6 @@ export default function Page() {
                     { f: "duplicate_ratio", desc: "Fraction of duplicate seqs" },
                     { f: "seq_increment_mean", desc: "Avg sequence step size" },
                     { f: "seq_increment_std", desc: "Seq step variance" },
-                    { f: "unique_modes", desc: "Distinct MQTT payload modes" },
                   ].map(ft => (
                     <div key={ft.f} style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: "10px 12px" }}>
                       <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--blue)", fontWeight: 600, marginBottom: 4 }}>{ft.f}</div>

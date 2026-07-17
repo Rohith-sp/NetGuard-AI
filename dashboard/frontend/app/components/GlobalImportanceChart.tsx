@@ -31,7 +31,6 @@ export default function GlobalImportanceChart() {
     max_inter_arrival_ms:  "var(--purple, #a78bfa)",
     std_inter_arrival_ms:  "var(--text-3)",
     seq_increment_std:     "var(--text-3)",
-    unique_modes:          "var(--text-3)",
   };
 
   return (

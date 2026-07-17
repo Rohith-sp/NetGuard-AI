@@ -150,9 +150,10 @@ export function useLiveData() {
 
   const triggerAttack = useCallback(async (mode: string) => {
     try {
+      const apiKey = process.env.NEXT_PUBLIC_NETGUARD_API_KEY || "";
       await fetch("http://localhost:8000/attacker/mode", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
         body: JSON.stringify({ mode }),
       });
     } catch (e) {
@@ -162,9 +163,10 @@ export function useLiveData() {
 
   const simulate = useCallback(async (mode: string) => {
     try {
+      const apiKey = process.env.NEXT_PUBLIC_NETGUARD_API_KEY || "";
       await fetch("http://localhost:8000/simulate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
         body: JSON.stringify({ mode }),
       });
     } catch (e) {
